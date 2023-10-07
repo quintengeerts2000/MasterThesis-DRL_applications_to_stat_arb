@@ -12,6 +12,7 @@ class ornstein_uhlenbeck_process:
         self.mu       = mu
         self.sigma    = sigma
         self.delta_t  = delta_t
+        self.X0  = X0
 
         # diagonalize the matrix theta
         eigs, self.V  = eig(theta)
@@ -31,6 +32,14 @@ class ornstein_uhlenbeck_process:
             self.Yt = np.transpose(np.zeros(len(self.b)))
         else:
             self.Yt = self.V.dot(X0)
+        self.t  = 0
+    
+    def reset(self):
+        #initialise the values at t=0
+        if self.X0 == None:
+            self.Yt = np.transpose(np.zeros(len(self.b)))
+        else:
+            self.Yt = self.V.dot(self.X0)
         self.t  = 0
 
         
