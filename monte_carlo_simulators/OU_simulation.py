@@ -12,7 +12,9 @@ class ornstein_uhlenbeck_process:
         self.mu       = mu
         self.sigma    = sigma
         self.delta_t  = delta_t
-        self.X0  = X0
+        self.X0       = X0
+        self.N        = len(self.mu)
+        self.X0       = np.zeros(self.N) if X0 is None else X0
 
         # diagonalize the matrix theta
         eigs, self.V  = eig(theta)
@@ -36,7 +38,8 @@ class ornstein_uhlenbeck_process:
     
     def reset(self):
         #initialise the values at t=0
-        if self.X0 == None:
+        if self.X0 is None:
+            self.X0 = np.zeros(self.N)
             self.Yt = np.transpose(np.zeros(len(self.b)))
         else:
             self.Yt = self.V.dot(self.X0)
@@ -47,10 +50,20 @@ class ornstein_uhlenbeck_process:
         '''
         get X(t + delta t) from X(t) using exact monte carlo simulation
         '''
+        self.t += self.delta_t
         eps = np.random.multivariate_normal(np.zeros(len(self.mu)),self.Var)
-        N   = len(self.mu)
-        for i in range(N):
+        for i in range(self.N):
             self.Yt[i] = self.Yt[i] * np.exp(-self.Lambda[i,i]*self.delta_t) + (1 - np.exp(-self.Lambda[i,i]*self.delta_t) ) *  \
                          self.b[i] + np.sqrt((1 - np.exp(-2*self.Lambda[i,i]*self.delta_t)) / (2*self.Lambda[i,i]))* eps[i]
             
         return self.V_inv.dot(self.Yt)
+    
+    def expected_val(self):
+        '''
+        get EXP[X(t + delta t)] from X(t) 
+        '''
+        self.Yt_exp = np.transpose(np.zeros(len(self.b)))
+        for i in range(self.N):
+            self.Yt_exp[i] = self.Yt[i] * np.exp(-self.Lambda[i,i]*self.delta_t) + (1 - np.exp(-self.Lambda[i,i]*self.delta_t) ) *  \
+                         self.b[i] 
+        return self.V_inv.dot(self.Yt_exp)
