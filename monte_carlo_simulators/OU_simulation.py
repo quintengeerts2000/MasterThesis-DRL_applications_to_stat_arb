@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.linalg import eig, inv,cholesky
+N = 100
 
 class ornstein_uhlenbeck_process:
     '''
@@ -67,3 +68,63 @@ class ornstein_uhlenbeck_process:
             self.Yt_exp[i] = self.Yt[i] * np.exp(-self.Lambda[i,i]*self.delta_t) + (1 - np.exp(-self.Lambda[i,i]*self.delta_t) ) *  \
                          self.b[i] 
         return self.V_inv.dot(self.Yt_exp)
+
+# Before starting the environment needs to be made
+
+class TradingEnvironment():
+    def __init__(self, process, T, r, p):
+        self.process = process
+        self.T   = T
+        self.L   = int(T/process.delta_t)
+        self.N   = process.N
+        self.idx = 0
+        self.r   = r
+        self.p   = p
+        
+        # setup the environment
+        self.process.reset()
+        self.X   = np.zeros((self.N,self.L))
+        self.W   = np.zeros(self.L)
+
+    def train(self):
+        #TODO: train and eval need to be used in the future for more complex reward functions
+        self.train = True
+    
+    def eval(self):
+        self.train = False
+        
+    def reset(self):
+        # reset the environment
+        self.process.reset()
+        self.X    = np.zeros((self.N,self.L))
+        self.idx  = 0
+        self.W    = np.zeros(self.L)
+        state     = np.zeros(2*self.N + 1)
+        state[:N] = self.process.X0.reshape((1,-1))
+        state[-1] = self.T - self.process.t
+        return state
+
+    def step(self, pi):
+        self.idx += 1
+        X_t_exp   = self.process.expected_val()
+        X_t       = self.process.step().reshape((-1,1))
+        self.t    = self.process.t
+        
+        self.X[:,self.idx] = X_t.reshape((1,-1))
+
+        dW_t = pi.squeeze().dot(self.X[:,self.idx] - self.X[:,self.idx-1]) + (self.W[self.idx-1] - pi.squeeze().dot(self.p))*self.r * self.process.delta_t
+        self.W[self.idx] = self.W[self.idx-1] + dW_t
+
+
+        state         = np.zeros(2*self.N + 1)
+        state[:N]     = X_t.reshape((1,-1))  # first N values are the process values themselves at timestep t 
+        state[N:-1]   = pi   # next N values are the previous pi 
+        #state[-1]     = self.T - self.t # final state variable is the time left in the episode
+        state[-1]     = 0
+        if self.train:
+            reward = pi.squeeze().dot(X_t_exp - self.X[:,self.idx-1]) + (self.W[self.idx-1] - pi.squeeze().dot(self.p))*self.r * self.process.delta_t
+        else:
+            reward = dW_t
+        #done = (T - self.process.delta_t <= self.t)
+        done = (self.L-1 == self.idx)
+        return state, reward.item(), done, {}
