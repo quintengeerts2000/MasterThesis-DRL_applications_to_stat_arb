@@ -41,9 +41,9 @@ class PolicyModel(nn.Module):
         x = F.leaky_relu(self.dropout(self.fc_2(x)))
 
         mu      = torch.clamp(self.fc_mu(x),min=LOC_MIN, max=LOC_MAX) # final layer estimates mu
-        #log_std = self.fc_sigma(x) # final layer estimates sigma
-        #log_std = torch.clamp(log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX) # We limit the variance by forcing within a range of -2,20
-        #sigma   = log_std.exp()
+        log_std = self.fc_sigma(x) # final layer estimates sigma
+        log_std = torch.clamp(log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX) # We limit the variance by forcing within a range of -2,20
+        sigma   = log_std.exp()
         sigma   = self.sigma_out
         return mu, sigma
 
