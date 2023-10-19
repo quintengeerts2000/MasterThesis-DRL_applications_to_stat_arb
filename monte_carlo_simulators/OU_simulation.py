@@ -79,6 +79,7 @@ class TradingEnvironment():
         self.idx = 0
         self.r   = r
         self.p   = p
+        self.alloc = list()
         
         # setup the environment
         self.process.reset()
@@ -98,6 +99,7 @@ class TradingEnvironment():
         self.X    = np.zeros((self.N,self.L))
         self.idx  = 0
         self.W    = np.zeros(self.L)
+        self.alloc = list()
         state     = np.zeros(2*self.N + 1)
         state[:self.N] = self.process.X0.reshape((1,-1))
         #state[N:-1] = self.T - self.process.t
@@ -113,9 +115,9 @@ class TradingEnvironment():
         
         self.X[:,self.idx] = X_t.reshape((1,-1))
 
-        dW_t = pi.squeeze().dot(self.X[:,self.idx] - self.X[:,self.idx-1]) + (self.W[self.idx-1] - pi.squeeze().dot(self.p))*self.r * self.process.delta_t
+        dW_t = pi.squeeze().dot(self.X[:,self.idx] - self.X[:,self.idx-1]) + (self.W[self.idx-1] - abs(pi.squeeze().dot(self.p)))*self.r * self.process.delta_t
         self.W[self.idx] = self.W[self.idx-1] + dW_t
-
+        self.alloc.append(pi)
 
         state         = np.zeros(2*self.N + 1)
         state[:self.N]     = X_t.reshape((1,-1))  # first N values are the process values themselves at timestep t 
