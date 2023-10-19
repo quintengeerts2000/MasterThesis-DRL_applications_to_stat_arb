@@ -16,7 +16,7 @@ LOC_MAX = 200
 #N = 1 # TODO: this needs to be removed in the future
 
 class PolicyModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.3):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.5):
         """
         This is a basic Artificial Neural Network that can be used for both the Actor and the Critic.
         """
@@ -38,7 +38,9 @@ class PolicyModel(nn.Module):
         """
         # first two hidden layers are shared for mu and sigma
         x = F.leaky_relu(self.fc_1(x))
-        x = F.leaky_relu(self.dropout(self.fc_2(x)))
+        #x = self.dropout(x)
+        x = F.leaky_relu(self.fc_2(x))
+        x = self.dropout(x)
 
         mu      = torch.clamp(self.fc_mu(x),min=LOC_MIN, max=LOC_MAX) # final layer estimates mu
         log_std = self.fc_sigma(x) # final layer estimates sigma
@@ -48,7 +50,7 @@ class PolicyModel(nn.Module):
         return mu, sigma
 
 class ValueModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.3):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.5):
         """
         This is a basic Artificial Neural Network that can be used for both the Actor and the Critic.
         """
@@ -65,7 +67,9 @@ class ValueModel(nn.Module):
         The Network uses a dropout layer (to help generalize), and the ReLU activation function.
         """
         x = F.leaky_relu(self.fc_1(x))
-        x = F.leaky_relu(self.dropout(self.fc_2(x)))
+        #x = self.dropout(x)
+        x = F.leaky_relu(self.fc_2(x))
+        x = self.dropout(x)
         x = self.fc_3(x)
         return x
 
