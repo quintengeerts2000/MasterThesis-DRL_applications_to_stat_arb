@@ -10,13 +10,13 @@ import gym
 from IPython.display import clear_output
 
 LOG_SIG_MIN = -20
-LOG_SIG_MAX = 1
-LOC_MIN = -2000
-LOC_MAX = 2000
-N = 100 # TODO: this needs to be removed in the future
+LOG_SIG_MAX = 2
+LOC_MIN = -200
+LOC_MAX = 200
+#N = 1 # TODO: this needs to be removed in the future
 
 class PolicyModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.2):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.3):
         """
         This is a basic Artificial Neural Network that can be used for both the Actor and the Critic.
         """
@@ -48,7 +48,7 @@ class PolicyModel(nn.Module):
         return mu, sigma
 
 class ValueModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.2):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.3):
         """
         This is a basic Artificial Neural Network that can be used for both the Actor and the Critic.
         """
@@ -155,8 +155,8 @@ def train(env, agent, optimizer, discount_factor):
 
     while not done:
 
-        state = torch.FloatTensor(state[:N]).unsqueeze(0)
-        #state = torch.FloatTensor(state).unsqueeze(0)
+        #state = torch.FloatTensor(state[:N]).unsqueeze(0)
+        state = torch.FloatTensor(state).unsqueeze(0) #TODO: change state
 
         action_mu, action_sigma, value_pred = agent.forward(state)
         
@@ -209,8 +209,8 @@ def evaluate(env, agent, vis=False):
     if vis: env.render()
     while not done:
 
-        state = torch.FloatTensor(state[:N]).unsqueeze(0)
-        #state = torch.FloatTensor(state).unsqueeze(0)
+        #state = torch.FloatTensor(state[:N]).unsqueeze(0)
+        state = torch.FloatTensor(state).unsqueeze(0) #todo change state
         with torch.no_grad():
             action,_, _ = agent.forward(state) #TODO: Not sure if only Mu is used when performing eval
 
@@ -245,7 +245,7 @@ def plot(frame_idx, train_rewards, policy_loss, value_loss):
     plt.plot(value_loss)
     plt.show()
 
-def update_policy_ppo(agent, states, actions, log_prob_actions, advantages, returns, optimizer, ppo_steps, ppo_clip):
+def update_policy_ppo(agent, states, actions, log_prob_actions, advantages, returns, optimizer,scheduler, ppo_steps, ppo_clip):
     
     total_policy_loss = 0 
     total_value_loss = 0
@@ -293,10 +293,11 @@ def update_policy_ppo(agent, states, actions, log_prob_actions, advantages, retu
     
         total_policy_loss += policy_loss.item()
         total_value_loss += value_loss.item()
+    scheduler.step()
     
     return total_policy_loss / ppo_steps, total_value_loss / ppo_steps
 
-def train_ppo(env, agent, optimizer, discount_factor, ppo_steps, ppo_clip):
+def train_ppo(env, agent, optimizer,scheduler, discount_factor, ppo_steps, ppo_clip):
         
     agent.train()
         
@@ -312,8 +313,8 @@ def train_ppo(env, agent, optimizer, discount_factor, ppo_steps, ppo_clip):
 
     while not done:
 
-        state = torch.FloatTensor(state[:N]).unsqueeze(0)  
-        #state = torch.FloatTensor(state).unsqueeze(0)  
+        #state = torch.FloatTensor(state[:N]).unsqueeze(0)  
+        state = torch.FloatTensor(state).unsqueeze(0)  #TODO: change state
 
         #append state here, not after we get the next state from env.step()
         states.append(state)
@@ -341,6 +342,6 @@ def train_ppo(env, agent, optimizer, discount_factor, ppo_steps, ppo_clip):
     returns = calculate_returns(rewards, values, discount_factor)
     advantages = calculate_advantages(returns, values)
     
-    policy_loss, value_loss = update_policy_ppo(agent, states, actions, log_prob_actions, advantages, returns, optimizer, ppo_steps, ppo_clip)
+    policy_loss, value_loss = update_policy_ppo(agent, states, actions, log_prob_actions, advantages, returns, optimizer,scheduler, ppo_steps, ppo_clip)
 
     return policy_loss, value_loss, episode_reward
