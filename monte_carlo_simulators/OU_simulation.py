@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.linalg import eig, inv,cholesky
-N = 100
 
 class ornstein_uhlenbeck_process:
     '''
@@ -100,8 +99,10 @@ class TradingEnvironment():
         self.idx  = 0
         self.W    = np.zeros(self.L)
         state     = np.zeros(2*self.N + 1)
-        state[:N] = self.process.X0.reshape((1,-1))
-        state[-1] = self.T - self.process.t
+        state[:self.N] = self.process.X0.reshape((1,-1))
+        #state[N:-1] = self.T - self.process.t
+        state[self.N:-1]   = np.zeros(self.N)   # next N values are the previous pi 
+        state[-1]     = 0
         return state
 
     def step(self, pi):
@@ -117,8 +118,8 @@ class TradingEnvironment():
 
 
         state         = np.zeros(2*self.N + 1)
-        state[:N]     = X_t.reshape((1,-1))  # first N values are the process values themselves at timestep t 
-        state[N:-1]   = pi   # next N values are the previous pi 
+        state[:self.N]     = X_t.reshape((1,-1))  # first N values are the process values themselves at timestep t 
+        state[self.N:-1]   = pi   # next N values are the previous pi 
         #state[-1]     = self.T - self.t # final state variable is the time left in the episode
         state[-1]     = 0
         if self.train:
