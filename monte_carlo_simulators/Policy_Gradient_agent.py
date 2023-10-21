@@ -23,11 +23,11 @@ class PolicyModel(nn.Module):
         super().__init__()
         self.sigma_out = torch.FloatTensor(np.ones(output_dim)) * 0.5
 
-        self.fc_1 = nn.Linear(input_dim,hidden_dim) 
-        self.fc_2 = nn.Linear(hidden_dim,hidden_dim)
+        self.fc_1 = nn.Linear(input_dim,hidden_dim,bias=False) 
+        self.fc_2 = nn.Linear(hidden_dim,hidden_dim,bias=False)
 
-        self.fc_mu = nn.Linear(hidden_dim,output_dim)
-        self.fc_sigma = nn.Linear(hidden_dim,output_dim)
+        self.fc_mu = nn.Linear(hidden_dim,output_dim,bias=False)
+        self.fc_sigma = nn.Linear(hidden_dim,output_dim,bias=False)
 
         self.dropout = nn.Dropout(dropout)
         
