@@ -13,7 +13,7 @@ LOG_SIG_MIN = -20
 LOG_SIG_MAX = 2
 LOC_MIN = -200
 LOC_MAX = 200
-N = 1 # TODO: this needs to be removed in the future
+N = 100 # TODO: this needs to be removed in the future
 
 class PolicyModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.5):
