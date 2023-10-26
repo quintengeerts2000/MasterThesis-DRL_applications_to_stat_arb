@@ -1,5 +1,8 @@
 import numpy as np
-from scipy.linalg import eig, inv,cholesky
+from scipy.linalg import eig, inv
+
+import gym
+from gym import spaces
 
 class ornstein_uhlenbeck_process:
     '''
@@ -36,13 +39,13 @@ class ornstein_uhlenbeck_process:
             self.Yt = self.V.dot(X0)
         self.t  = 0
     
-    def reset(self):
+    def reset(self, X0=None):
         #initialise the values at t=0
-        if self.X0 is None:
+        if X0 is None:
             self.X0 = np.zeros(self.N)
             self.Yt = np.transpose(np.zeros(len(self.b)))
         else:
-            self.Yt = self.V.dot(self.X0)
+            self.Yt = self.V.dot(X0)
         self.t  = 0
 
         
@@ -70,8 +73,9 @@ class ornstein_uhlenbeck_process:
 
 # Before starting the environment needs to be made
 
-class TradingEnvironment():
-    def __init__(self, process, T, r, p):
+class TradingEnvironment(gym.Env):
+    def __init__(self, process, T, r, p, max_pi=np.inf, max_change=np.inf, initial_wealth=100, mode='intensity'):
+
         self.process = process
         self.T   = T
         self.L   = int(T/process.delta_t)
@@ -80,58 +84,78 @@ class TradingEnvironment():
         self.r   = r
         self.p   = p
         self.alloc = list()
-        self.pi  = np.zeros(process.N)
+        self.W0  = initial_wealth
+        self.mode = mode
+
+        self.max_pi = max_pi
+        self.max_change = max_change
+
+        self.observation_space = spaces.Dict({
+            "values": spaces.Box(low=-np.inf, high= np.inf, shape=(self.N,),dtype=np.float32),
+            "portfolio": spaces.Box(shape=(self.N,),low=-max_pi,high=max_pi,dtype=np.float32),
+            "wealth": spaces.Box(low= -np.inf, high=np.inf, shape=())
+        })
+
+        self.action_space = spaces.Box(low=-max_change,high=max_change, shape=(self.N,))
         
         # setup the environment
-        self.process.reset()
         self.X   = np.zeros((self.N,self.L))
         self.W   = np.zeros(self.L)
-
-    def train(self):
-        #TODO: train and eval need to be used in the future for more complex reward functions
-        self.train = True
     
-    def eval(self):
-        self.train = False
+    def _get_obs(self):
+        return {"values":self.X_t, "portfolio": self.pi_t, "wealth": self.W_t}
+    
+    def _get_info(self):
+        return {"expected_values": self.exp_val}
+
         
-    def reset(self):
+    def reset(self, seed=None):
         # reset the environment
-        self.process.reset()
-        self.X    = np.zeros((self.N,self.L))
-        self.idx  = 0
-        self.W    = np.zeros(self.L)
+        super().reset(seed=seed)
+        X0 = self.np_random.multivariate_normal(self.process.mu.flatten(), self.process.Var) #TODO: initialisatie niet helemaal kosher
+        self.process.reset(X0=X0)
+    
+        self.X      = np.zeros((self.N,self.L+1))
+        self.X[:,0] = X0
+        self.W     = np.zeros(self.L+1)
+        self.W[0]  = self.W0
         self.alloc = list()
-        self.pi   = np.zeros(self.N)
-        state     = np.zeros(2*self.N + 1)
-        state[:self.N] = self.process.X0.reshape((1,-1))
-        #state[N:-1] = self.T - self.process.t
-        state[self.N:-1]   = np.zeros(self.N)   # next N values are the previous pi 
-        state[-1]     = 0
-        return state
+        self.idx    = 0
 
-    def step(self, intensity):
-        self.idx += 1
-        #self.pi  = np.clip(self.pi + intensity,-200,200)
-        self.pi  = intensity #+ intensity
-        X_t_exp   = self.process.expected_val()
-        X_t       = self.process.step().reshape((-1,1))
-        self.t    = self.process.t
-        
-        self.X[:,self.idx] = X_t.reshape((1,-1))
+        self.pi_t   = np.zeros(self.N)
+        self.X_t    = X0
+        self.W_t    = self.W0
+        self.exp_val= self.process.mu
 
-        dW_t = self.pi.squeeze().dot(self.X[:,self.idx] - self.X[:,self.idx-1]) + (self.W[self.idx-1] - abs(self.pi.squeeze().dot(self.p)))*self.r * self.process.delta_t
-        self.W[self.idx] = self.W[self.idx-1] + dW_t
-        self.alloc.append(self.pi)
+        observation = self._get_obs()
+        info        = self._get_info()
+        return observation, info
 
-        state         = np.zeros(2*self.N + 1)
-        state[:self.N]     = X_t.reshape((1,-1))  # first N values are the process values themselves at timestep t 
-        state[self.N:-1]   = self.pi   # next N values are the previous pi 
-        #state[-1]     = self.T - self.t # final state variable is the time left in the episode
-        state[-1]     = 0
-        if self.train:
-            reward = self.pi.squeeze().dot(X_t_exp - self.X[:,self.idx-1]) + (self.W[self.idx-1] - self.pi.squeeze().dot(self.p))*self.r * self.process.delta_t
+    def step(self, action):
+        # set portfolio for time t
+        if self.mode == 'intensity':
+            self.pi_t  = np.clip(self.pi_t + action,-self.max_pi,self.max_pi).flatten()
+        elif self.mode == 'portfolio':
+            self.pi_t  = np.clip(action, -self.max_pi, self.max_pi).flatten()
         else:
-            reward = dW_t
-        #done = (T - self.process.delta_t <= self.t)
+            raise ValueError('{} is not a valid mode for runnning the trading environment'.format(self.mode))
+        # perform a step in the environment t -> t+1
+        self.idx += 1
+        self.X_t       = self.process.step()
+        self.t         = self.process.t
+
+        # calculate the return from portfolio of time t with returns of time t+1
+        dW_t = self.pi_t.squeeze().dot(self.X_t.flatten() - self.X[:,self.idx-1]) #+ (self.W[self.idx-1] - abs(self.pi_t.squeeze().dot(self.p)))*self.r * self.process.delta_t
+        self.W_t = self.W[self.idx-1] + dW_t
+        self.exp_val   = self.process.expected_val()
+
+        # save the values 
+        self.X[:,self.idx] = self.X_t
+        self.W[self.idx] = self.W_t 
+        self.alloc.append(self.pi_t)
+
+        observation = self._get_obs()
+        reward = dW_t.item()
         done = (self.L-1 == self.idx)
-        return state, reward.item(), done, {}
+        info        = self._get_info()
+        return observation, reward, done, info

@@ -8,12 +8,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import gym
 from IPython.display import clear_output
+from collections import deque
+import random
+
 
 LOG_SIG_MIN = -20
 LOG_SIG_MAX = 2
-LOC_MIN = -200
-LOC_MAX = 200
-N = 100 # TODO: this needs to be removed in the future
+LOC_MIN = -1
+LOC_MAX = 1
+USE_PI = True
 
 class PolicyModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, dropout = 0.5):
@@ -155,12 +158,15 @@ def train(env, agent, optimizer, discount_factor):
     done = False
     episode_reward = 0
 
-    state = env.reset()
+    state, _ = env.reset()
 
     while not done:
-
-        state = torch.FloatTensor(state[:N]).unsqueeze(0)
-        #state = torch.FloatTensor(state).unsqueeze(0) #TODO: change state
+        
+         #TODO: change state
+        if not USE_PI:
+            state = torch.FloatTensor(state['values']).unsqueeze(0)
+        else:
+            state = torch.cat((torch.FloatTensor(state['values']),torch.FloatTensor(state['portfolio']))).unsqueeze(0)
 
         action_mu, action_sigma, value_pred = agent.forward(state)
         
@@ -209,12 +215,16 @@ def evaluate(env, agent, vis=False):
     done = False
     episode_reward = 0
 
-    state = env.reset()
+    state, _ = env.reset()
     if vis: env.render()
     while not done:
 
-        state = torch.FloatTensor(state[:N]).unsqueeze(0)
-        #state = torch.FloatTensor(state).unsqueeze(0) #todo change state
+        #TODO: still work in progress
+        if not USE_PI:
+            state = torch.FloatTensor(state['values']).unsqueeze(0)
+        else:
+            state = torch.cat((torch.FloatTensor(state['values']),torch.FloatTensor(state['portfolio'])))
+
         with torch.no_grad():
             action,_, _ = agent.forward(state) #TODO: Not sure if only Mu is used when performing eval
 
@@ -313,13 +323,14 @@ def train_ppo(env, agent, optimizer,scheduler, discount_factor, ppo_steps, ppo_c
     done = False
     episode_reward = 0
 
-    state = env.reset()
+    state, _ = env.reset()
 
     while not done:
-
-        state = torch.FloatTensor(state[:N]).unsqueeze(0)  
-        #state = torch.FloatTensor(state).unsqueeze(0)  #TODO: change state
-
+        #TODO: change state
+        if not USE_PI:
+            state = torch.FloatTensor(state['values']).unsqueeze(0)
+        else:
+            state = torch.cat((torch.FloatTensor(state['values']),torch.FloatTensor(state['portfolio']))).unsqueeze(0)
         #append state here, not after we get the next state from env.step()
         states.append(state)
         
@@ -349,3 +360,138 @@ def train_ppo(env, agent, optimizer,scheduler, discount_factor, ppo_steps, ppo_c
     policy_loss, value_loss = update_policy_ppo(agent, states, actions, log_prob_actions, advantages, returns, optimizer,scheduler, ppo_steps, ppo_clip)
 
     return policy_loss, value_loss, episode_reward
+
+class ReplayBuffer(object):
+    def __init__(self, capacity):
+        """
+        Parameters
+        ----------
+        capacity: int
+            the length of your buffer
+        """
+        self.buffer = deque(maxlen=capacity)
+    
+    def push_batch(self, states, actions, log_prob_actions,values,returns, advantages):
+        #state      = np.expand_dims(state, 0)
+        #next_state = np.expand_dims(next_state, 0)
+        
+        for i in range(len(values)):
+            self.buffer.append((states[i], actions[i],log_prob_actions[i], returns[i], values[i], advantages[i]))
+    
+    def sample(self, batch_size):
+        """
+        batch_size: int
+        """
+        states, actions, log_prob_actions, values,returns, advantages = zip(*random.sample(self.buffer, batch_size))
+        return torch.stack(states), torch.stack(actions), torch.stack(log_prob_actions), torch.stack(values), torch.stack(returns), torch.stack(advantages)
+    
+    def __len__(self):
+        return len(self.buffer)
+
+def train_ppo_replay_buffer(env, agent, optimizer,scheduler,replay_buffer, discount_factor, ppo_steps, ppo_clip, replay_buffer_sample_size):
+        
+    agent.train()
+        
+    states = []
+    actions = []
+    log_prob_actions = []
+    values = []
+    rewards = []
+    done = False
+    episode_reward = 0
+
+    state, _ = env.reset()
+
+    while not done:
+         #TODO: change state
+        if not USE_PI:
+            state = torch.FloatTensor(state['values']).unsqueeze(0)
+        else:
+            state = torch.cat((torch.FloatTensor(state['values']),torch.FloatTensor(state['portfolio']))).unsqueeze(0)
+
+
+        #append state here, not after we get the next state from env.step()
+        states.append(state)
+        
+        action_mu, action_sigma, value_pred = agent.forward(state)
+        dist   = distributions.Normal(action_mu, action_sigma)
+        action = dist.sample()
+        log_prob_action = dist.log_prob(action) # not sure if this is correct for the normal distribution
+        log_prob_action = log_prob_action.sum().unsqueeze(-1)
+
+        state, reward, done, _ = env.step(action.numpy())
+
+        actions.append(action)
+        log_prob_actions.append(log_prob_action)
+        values.append(value_pred)
+        rewards.append(reward)
+        
+        episode_reward += reward
+    
+    states = torch.cat(states)
+    actions = torch.cat(actions)    
+    log_prob_actions = torch.cat(log_prob_actions)
+    values = torch.cat(values).squeeze(-1)
+    
+    returns = calculate_returns(rewards, values, discount_factor)
+    advantages = calculate_advantages(returns, values)
+    replay_buffer.push_batch(states, actions, log_prob_actions, values,returns, advantages)
+
+    policy_loss, value_loss = update_policy_ppo_replay_buffer(agent,replay_buffer, optimizer,scheduler, ppo_steps, ppo_clip, replay_buffer_sample_size)
+
+    return policy_loss, value_loss, episode_reward
+
+def update_policy_ppo_replay_buffer(agent, replay_buffer, optimizer,scheduler, ppo_steps, ppo_clip, replay_buffer_sample_size):
+    
+    total_policy_loss = 0 
+    total_value_loss = 0
+
+    states, actions, log_prob_actions, values, returns, advantages = replay_buffer.sample(replay_buffer_sample_size)
+
+    advantages = advantages.detach()
+    log_prob_actions = log_prob_actions.detach()
+    actions = actions.detach()
+    returns = returns.detach()
+    
+    for _ in range(ppo_steps):
+                
+        #get new log prob of actions for all input states
+        # action_prob, value_pred = agent(states)
+        # value_pred = value_pred.squeeze(-1)
+        # dist = distributions.Categorical(action_prob)
+        
+        action_mu, action_sigma, value_pred = agent.forward(states)
+        value_pred = value_pred.squeeze(-1)
+        dist   = distributions.Normal(action_mu, action_sigma)
+
+        #new log prob using old actions
+        new_log_prob_actions = dist.log_prob(actions)
+        new_log_prob_actions = new_log_prob_actions.sum(axis=1)
+        # TODO calculate policy ratio
+        policy_ratio =  new_log_prob_actions - log_prob_actions
+        
+        # TODO calculate policy_loss_1, part of actor's loss          
+        policy_loss_1 = policy_ratio * advantages 
+        
+        # TODO Calculate clipped part of actor's loss. Hint: check torch clamp.
+        policy_loss_2 = torch.clamp(policy_ratio,1-ppo_clip,1+ppo_clip) * advantages
+        
+        
+        policy_loss = - torch.min(policy_loss_1, policy_loss_2).mean()
+        #policy_loss = - torch.min(policy_loss_1.sum(), policy_loss_2.sum())
+
+        # TODO calculate value_loss
+        value_loss = ((returns-value_pred)**2).mean()
+    
+        optimizer.zero_grad()
+
+        policy_loss.backward()
+        value_loss.backward()
+
+        optimizer.step()
+    
+        total_policy_loss += policy_loss.item()
+        total_value_loss += value_loss.item()
+    scheduler.step()
+    
+    return total_policy_loss / ppo_steps, total_value_loss / ppo_steps
