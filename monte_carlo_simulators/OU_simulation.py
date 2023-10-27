@@ -115,9 +115,9 @@ class TradingEnvironment(gym.Env):
         X0 = self.np_random.multivariate_normal(self.process.mu.flatten(), self.process.Var) #TODO: initialisatie niet helemaal kosher
         self.process.reset(X0=X0)
     
-        self.X      = np.zeros((self.N,self.L+1))
+        self.X      = np.zeros((self.N,self.L))
         self.X[:,0] = X0
-        self.W     = np.zeros(self.L+1)
+        self.W     = np.zeros(self.L)
         self.W[0]  = self.W0
         self.alloc = list()
         self.idx    = 0
@@ -145,7 +145,7 @@ class TradingEnvironment(gym.Env):
         self.t         = self.process.t
 
         # calculate the return from portfolio of time t with returns of time t+1
-        dW_t = self.pi_t.squeeze().dot(self.X_t.flatten() - self.X[:,self.idx-1]) #+ (self.W[self.idx-1] - abs(self.pi_t.squeeze().dot(self.p)))*self.r * self.process.delta_t
+        dW_t = self.pi_t.squeeze().dot(self.X_t.flatten() - self.X[:,self.idx-1]) + (self.W[self.idx-1] - self.pi_t.squeeze().dot(self.p))*self.r * self.process.delta_t
         self.W_t = self.W[self.idx-1] + dW_t
         self.exp_val   = self.process.expected_val()
 
