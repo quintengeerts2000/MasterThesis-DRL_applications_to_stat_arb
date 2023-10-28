@@ -174,7 +174,7 @@ class TradingEnvironment(gym.Env):
         # calculate the return from portfolio of time t with returns of time t+1
         dW_t = self.pi_t.squeeze().dot(self.X_t.flatten() - self.X[:,self.idx-1]) \
             + (self.W[self.idx-1] - np.abs(self.pi_t.squeeze().dot(self.p)))*self.r * self.process.delta_t \
-            - abs(action) * self.tc
+            - np.linalg.norm(action,1) * self.tc
         self.W_t = self.W[self.idx-1] + dW_t
         self.exp_val   = self.process.expected_val()
 
@@ -184,7 +184,7 @@ class TradingEnvironment(gym.Env):
         self.alloc.append(self.pi_t)
 
         observation = self._get_obs()
-        reward = dW_t.item()
+        reward = dW_t.item() - 0.1 * ((self.pi_t.squeeze().dot(self.p))**2)/2*self.process.delta_t
         done = (self.L-1 == self.idx)
         info        = self._get_info()
         return observation, reward, done, info
