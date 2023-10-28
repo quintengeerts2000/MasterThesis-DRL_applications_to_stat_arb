@@ -71,10 +71,35 @@ class ornstein_uhlenbeck_process:
                          self.b[i] 
         return self.V_inv.dot(self.Yt_exp)
 
+class OU_process_shuffler(ornstein_uhlenbeck_process):
+    '''
+    A class that wraps the ornstein uhlenbeck process class, works using the exact same interface, except when reset this
+    class outputs a new OU process with new random parameters
+    '''
+    def __init__(self, N, T, L):
+        self.N = N
+        self.T = T
+        self.L = L
+        params = self.initialise_parameters()
+        super().__init__(**params)
+    
+    def reset(self,X0=None):
+        params = self.initialise_parameters()
+        super().__init__(**params)
+        return super().reset(X0=X0)
+    
+    def initialise_parameters(self):
+        delta_t = self.T/self.L
+        theta   = np.diag(np.random.normal(0.5, 0.1,self.N))
+        mu      = np.zeros((self.N,1))
+        sigma   = np.random.uniform(-0.3,0.3,(self.N,self.N))
+        sigma   = sigma - np.diag(sigma.diagonal()) + np.diag(np.random.uniform(0,0.5,self.N))
+        return {'delta_t':delta_t,'theta':theta,'mu':mu,'sigma':sigma}
+
 # Before starting the environment needs to be made
 
 class TradingEnvironment(gym.Env):
-    def __init__(self, process, T, r, p, max_pi=np.inf, max_change=np.inf, initial_wealth=100, mode='intensity'):
+    def __init__(self, process, T, r, p, max_pi=np.inf, max_change=np.inf, initial_wealth=100, mode='intensity', transaction_costs=0.001):
 
         self.process = process
         self.T   = T
@@ -86,6 +111,7 @@ class TradingEnvironment(gym.Env):
         self.alloc = list()
         self.W0  = initial_wealth
         self.mode = mode
+        self.tc   = transaction_costs
 
         self.max_pi = max_pi
         self.max_change = max_change
@@ -145,7 +171,9 @@ class TradingEnvironment(gym.Env):
         self.t         = self.process.t
 
         # calculate the return from portfolio of time t with returns of time t+1
-        dW_t = self.pi_t.squeeze().dot(self.X_t.flatten() - self.X[:,self.idx-1]) + (self.W[self.idx-1] - self.pi_t.squeeze().dot(self.p))*self.r * self.process.delta_t
+        dW_t = self.pi_t.squeeze().dot(self.X_t.flatten() - self.X[:,self.idx-1]) \
+            + (self.W[self.idx-1] - np.abs(self.pi_t.squeeze().dot(self.p)))*self.r * self.process.delta_t \
+            - abs(action) * self.tc
         self.W_t = self.W[self.idx-1] + dW_t
         self.exp_val   = self.process.expected_val()
 
