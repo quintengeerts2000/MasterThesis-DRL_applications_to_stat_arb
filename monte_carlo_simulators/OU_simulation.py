@@ -138,7 +138,8 @@ class TradingEnvironment(gym.Env):
     def reset(self, seed=None):
         # reset the environment
         super().reset(seed=seed)
-        X0 = self.np_random.multivariate_normal(self.process.mu.flatten(), self.process.Var) #TODO: initialisatie niet helemaal kosher
+        #X0 = self.np_random.multivariate_normal(self.process.mu.flatten(), self.process.Var) #TODO: initialisatie niet helemaal kosher
+        X0 = np.zeros(self.N)
         self.process.reset(X0=X0)
     
         self.X      = np.zeros((self.N,self.L))
