@@ -99,7 +99,9 @@ class OU_process_shuffler(ornstein_uhlenbeck_process):
 # Before starting the environment needs to be made
 
 class TradingEnvironment(gym.Env):
-    def __init__(self, process, T, r, p, max_pi=np.inf, max_change=np.inf, initial_wealth=100, mode='intensity', transaction_costs=0.001):
+    def __init__(self, process, T, r, p, max_pi=np.inf, max_change=np.inf, 
+                 initial_wealth=100, mode='intensity', transaction_costs=0.001,
+                 lookback=0):
 
         self.process = process
         self.T   = T
@@ -112,6 +114,7 @@ class TradingEnvironment(gym.Env):
         self.W0  = initial_wealth
         self.mode = mode
         self.tc   = transaction_costs
+        self.lookback = lookback
 
         self.max_pi = max_pi
         self.max_change = max_change
@@ -125,11 +128,15 @@ class TradingEnvironment(gym.Env):
         self.action_space = spaces.Box(low=-max_change,high=max_change, shape=(self.N,))
         
         # setup the environment
-        self.X   = np.zeros((self.N,self.L))
-        self.W   = np.zeros(self.L)
+        self.X   = np.zeros((self.N, self.L+self.lookback))
+        self.W   = np.zeros(self.L+self.lookback)
     
     def _get_obs(self):
-        return {"values":self.X_t, "portfolio": self.pi_t, "wealth": self.W_t}
+        if self.lookback > 0:
+            return {"values":self.X[:,self.idx-self.lookback: self.idx].flatten(), "portfolio": self.pi_t, "wealth": self.W_t}
+        else:
+            return {"values":self.X_t, "portfolio": self.pi_t, "wealth": self.W_t}
+
     
     def _get_info(self):
         return {"expected_values": self.exp_val}
@@ -142,9 +149,9 @@ class TradingEnvironment(gym.Env):
         X0 = np.zeros(self.N)
         self.process.reset(X0=X0)
     
-        self.X      = np.zeros((self.N,self.L))
+        self.X      = np.zeros((self.N,self.L+self.lookback))
         self.X[:,0] = X0
-        self.W     = np.zeros(self.L)
+        self.W     = np.zeros(self.L+self.lookback)
         self.W[0]  = self.W0
         self.alloc = list()
         self.idx    = 0
@@ -153,6 +160,9 @@ class TradingEnvironment(gym.Env):
         self.X_t    = X0
         self.W_t    = self.W0
         self.exp_val= self.process.mu
+
+        for _ in range(self.lookback):
+            self.step(action=np.zeros(self.N))
 
         observation = self._get_obs()
         info        = self._get_info()
@@ -184,7 +194,7 @@ class TradingEnvironment(gym.Env):
         self.alloc.append(self.pi_t)
 
         observation = self._get_obs()
-        reward = dW_t.item() - 0.1 * ((self.pi_t.squeeze().dot(self.p))**2)/2*self.process.delta_t
+        reward = dW_t.item()
         done = (self.L-1 == self.idx)
         info        = self._get_info()
         return observation, reward, done, info
