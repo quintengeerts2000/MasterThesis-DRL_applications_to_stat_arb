@@ -225,5 +225,6 @@ def eval_policy(policy, env, seed, eval_episodes=10):
 def dict_to_features(d):
     #return torch.FloatTensor(d['values']).unsqueeze(0).numpy()
     #return torch.FloatTensor([*d['values'], *d['portfolio'], d['wealth']])
-    return torch.FloatTensor([*d['values'], *d['portfolio']])
+    #return torch.FloatTensor([*d['values'], *d['portfolio']])
+	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])
 

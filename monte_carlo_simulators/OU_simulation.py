@@ -135,7 +135,8 @@ class TradingEnvironment(gym.Env):
         if self.lookback > 0:
             return {"values":self.X[:,self.idx-self.lookback: self.idx].flatten(), "portfolio": self.pi_t, "wealth": self.W_t}
         else:
-            return {"values":self.X_t, "portfolio": self.pi_t, "wealth": self.W_t}
+            #return {"values":self.X_t, "portfolio": self.pi_t, "wealth": self.W_t}
+            return {"values":self.X_t, "mu": self.process.mu.flatten(), "sigma": self.process.sigma.flatten(), 'theta':self.process.theta.flatten()}
 
     
     def _get_info(self):
