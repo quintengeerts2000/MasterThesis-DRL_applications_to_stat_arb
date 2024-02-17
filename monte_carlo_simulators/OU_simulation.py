@@ -46,6 +46,7 @@ class ornstein_uhlenbeck_process:
             self.Yt = np.transpose(np.zeros(len(self.b)))
         else:
             self.Yt = self.V.dot(X0)
+            self.X0 = X0
         self.t  = 0
 
         
@@ -86,12 +87,13 @@ class OU_process_shuffler(ornstein_uhlenbeck_process):
     def reset(self,X0=None):
         params = self.initialise_parameters()
         super().__init__(**params)
-        return super().reset(X0=X0)
-    
+        return super().reset(X0=params['mu'][0])
+
     def initialise_parameters(self):
         delta_t = self.T/self.L
         theta   = np.diag(np.random.normal(0.5, 0.1,self.N))
-        mu      = np.zeros((self.N,1))
+        #mu      = np.zeros((self.N,1))
+        mu   = np.random.uniform(-1,1,(self.N,1))
         sigma   = np.random.uniform(-0.3,0.3,(self.N,self.N))
         sigma   = sigma - np.diag(sigma.diagonal()) + np.diag(np.random.uniform(0,0.5,self.N))
         return {'delta_t':delta_t,'theta':theta,'mu':mu,'sigma':sigma}
@@ -147,9 +149,11 @@ class TradingEnvironment(gym.Env):
         # reset the environment
         super().reset(seed=seed)
         #X0 = self.np_random.multivariate_normal(self.process.mu.flatten(), self.process.Var) #TODO: initialisatie niet helemaal kosher
-        X0 = np.zeros(self.N)
-        self.process.reset(X0=X0)
-    
+        #X0 = np.zeros(self.N)
+        #X0 = np.random.uniform(-1,1,(self.N,))
+        #self.process.reset(X0=X0)
+        self.process.reset()
+        X0 = self.process.X0
         self.X      = np.zeros((self.N,self.L+self.lookback))
         self.X[:,0] = X0
         self.W     = np.zeros(self.L+self.lookback)

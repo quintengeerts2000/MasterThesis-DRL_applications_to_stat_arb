@@ -2,9 +2,11 @@ import copy
 import numpy as np
 import torch
 import torch.nn as nn
+from collections import deque, namedtuple
 import torch.nn.functional as F
+import os
 
-device = 'cpu'
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Actor(nn.Module):
 	def __init__(self, state_dim, action_dim, max_action, hidden_dimension):
@@ -228,3 +230,145 @@ def dict_to_features(d):
     #return torch.FloatTensor([*d['values'], *d['portfolio']])
 	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])
 
+def eval_policy(policy, env, seed, eval_episodes=1):
+	
+	avg_reward = 0.
+	for ep in range(eval_episodes):
+		state, _ = env.reset(seed + 100*ep)
+		state = dict_to_features(state)
+		done  = False
+		while not done:
+			action = policy.select_action(np.array(state))
+			state, reward, done, _ = env.step(action)
+			state = dict_to_features(state)
+			avg_reward += reward
+
+	avg_reward /= eval_episodes
+
+	#print("---------------------------------------")
+	#print(f"Evaluation over {eval_episodes} episodes: {avg_reward:.3f}")
+	#print("---------------------------------------")
+	return avg_reward
+
+def TD3_train(env, timesteps):
+	# PARAMETERS
+	seed = 100
+	alpha = 0.99 # Discount factor
+	tau  = 0.005 # Target network update rate
+
+	HIDDEN_DIM = 64
+
+	POLICY_NOISE =  0.2 # Noise added to target policy during critic update
+	MAX_ACTION = 20
+	POLICY_FREQ = 2 # Frequency of delayed policy updates
+	MAX_TIMESTEPS = timesteps # Max time steps to run environment
+	EXPL_NOISE = 0.1 # Std of Gaussian exploration noise
+	START_TIMESTEPS = 5000 #25e3 # Time steps initial random policy is used
+	NOISE_CLIP =  0.5 # Range to clip target policy noise
+	BATCH_SIZE = 256 # Batch size for both actor and critic
+	EVAL_FREQ = 5e3  # How often (time steps) we evaluate
+
+	SAVE_MODEL = False
+	file_name = 'N1'
+	print(device)
+
+	# Set seeds
+	env.seed(seed)
+	env.action_space.seed(seed)
+	#torch.manual_seed(seed)
+	np.random.seed(seed)
+
+	state_dim = 4 # env.observation_space.shape[0]
+	action_dim = env.action_space.shape[0] 
+	max_action = float(env.action_space.high[0])
+
+	kwargs = {
+		"state_dim": state_dim,
+		"action_dim": action_dim,
+		"max_action": max_action,
+		"discount": alpha,
+		"tau": tau,
+		'hidden_dimension': HIDDEN_DIM
+	}
+
+	# Initialize policy
+	kwargs["policy_noise"] = POLICY_NOISE * MAX_ACTION
+	kwargs["noise_clip"] = NOISE_CLIP * MAX_ACTION
+	kwargs["policy_freq"] = POLICY_FREQ
+	policy = TD3(**kwargs)
+
+	#policy.load(f"./models/{policy_file}")
+
+	replay_buffer = ReplayBuffer_TD3(state_dim, action_dim)
+
+	# Evaluate untrained policy
+	evaluations = [eval_policy(policy, env, seed)]
+
+	state,_ = env.reset()
+	state = dict_to_features(state)
+
+	done   = False
+	score = 0
+	episode_timesteps = 0
+	episode_num = 0
+
+	scores = []                        # list containing scores from each episode
+	scores_window = deque(maxlen=100)  # last 100 scores
+	output_history = []
+	episode_num = 0
+	eps_start = 1
+	i_episode = 1
+
+	for t in range(int(MAX_TIMESTEPS)):
+		
+		episode_timesteps += 1
+
+		# Select action randomly or according to policy
+		if t < START_TIMESTEPS:
+			action = env.action_space.sample()
+		else:
+			action = (
+				policy.select_action(np.array(state))
+				+ np.random.normal(0, MAX_ACTION * EXPL_NOISE, size=action_dim)
+			).clip(-max_action, max_action)
+
+		# Perform action
+		next_state, reward, done, _ = env.step(action)
+		next_state = dict_to_features(next_state)
+		#done_bool = float(done) if episode_timesteps < env.L else 0
+		done_bool = float(done)
+		# Store data in replay buffer
+		replay_buffer.add(state, action, next_state, reward, done_bool)
+
+		state = next_state
+		score += reward
+
+		# Train agent after collecting sufficient data
+		if t >= START_TIMESTEPS:
+			policy.train(replay_buffer, BATCH_SIZE)
+
+		# Evaluate episode
+		if (t + 1) % EVAL_FREQ == 0:
+			evaluations.append(eval_policy(policy, env, seed))
+			env.reset()
+			np.save(f"{os.getcwd()}/results/{file_name}", evaluations)
+			if SAVE_MODEL: policy.save(f"{os.getcwd()}/models/{file_name}")
+		
+		if done:
+			#scores_window.append(score)       # save most recent score
+			scores.append(score)              # save most recent score
+			#writer.add_scalar("Average100", np.mean(scores_window), frame)
+			#output_history.append(np.mean(scores_window))
+			eval_score = eval_policy(policy, env, seed,eval_episodes=1)
+			scores_window.append(eval_score)       # save most recent score
+			output_history.append(np.mean(scores_window))
+			print('\rEpisode {}\tFrame {} \tAverage Score: {:.2f}'.format(i_episode, t, np.mean(scores_window)), end="")
+			if i_episode % 100 == 0:
+				print('\rEpisode {}\tFrame {}\tAverage Score: {:.2f}'.format(i_episode,t, np.mean(scores_window)))
+			i_episode +=1 
+			state, _ = env.reset()
+			state = dict_to_features(state)
+			score = 0
+			episode_timesteps = 0
+			episode_num += 1
+	return policy, scores_window
