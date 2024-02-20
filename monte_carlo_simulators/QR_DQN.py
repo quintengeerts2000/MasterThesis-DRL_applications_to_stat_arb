@@ -12,6 +12,9 @@ from collections import deque, namedtuple
 import time
 import gym
 
+device = device = torch.device(f'cuda:{torch.cuda.current_device()}') if torch.cuda.is_available() else 'cpu'
+
+#torch.set_default_device(device)
 
 def weight_init(layers):
     for layer in layers:
@@ -43,7 +46,7 @@ class QR_DQN(nn.Module):
         return out.view(input.shape[0], self.N, self.action_size)
     def get_action(self,input):
         x = self.forward(input)
-        return x.mean(dim=1) - 2 * x.var(dim=1)
+        return x.mean(dim=1) #- 2 * x.var(dim=1)
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -144,7 +147,7 @@ class DQN_Agent():
         self.BATCH_SIZE = BATCH_SIZE
         self.Q_updates = 0
         self.n_step = n_step
-        self.N = 32
+        self.N = 8 #32
         self.quantile_tau = torch.FloatTensor([i/self.N for i in range(1,self.N+1)]).to(device)
 
         self.action_step = 4
@@ -171,7 +174,7 @@ class DQN_Agent():
         self.t_step = (self.t_step + 1) % self.UPDATE_EVERY
         if self.t_step == 0:
             # If enough samples are available in memory, get random subset and learn
-            if len(self.memory) > self.BATCH_SIZE:
+            if len(self.memory) > 5000:#self.BATCH_SIZE:
                 experiences = self.memory.sample()
                 loss = self.learn(experiences)
                 self.Q_updates += 1
@@ -223,9 +226,9 @@ class DQN_Agent():
         Q_targets_next = self.qnetwork_target(next_states).detach().cpu() #.max(2)[0].unsqueeze(1) #(batch_size, 1, N)
 
         #TODO: hier aanpassen voor risk aware te maken
-        #action_indx = torch.argmax(Q_targets_next.mean(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
+        action_indx = torch.argmax(Q_targets_next.mean(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
         #action_indx = torch.argmax(Q_targets_next.mean(dim=1) / Q_targets_next.var(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
-        action_indx = torch.argmax(Q_targets_next.mean(dim=1) - 2* Q_targets_next.var(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
+        #action_indx = torch.argmax(Q_targets_next.mean(dim=1) - 2* Q_targets_next.var(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
         Q_targets_next = Q_targets_next.gather(2, action_indx.unsqueeze(-1).expand(self.BATCH_SIZE, self.N, 1)).transpose(1,2)
 
         assert Q_targets_next.shape == (self.BATCH_SIZE,1, self.N)
@@ -267,8 +270,8 @@ def calculate_huber_loss(td_errors, k=1.0):
     Calculate huber loss element-wisely depending on kappa k.
     """
     loss = torch.where(td_errors.abs() <= k, 0.5 * td_errors.pow(2), k * (td_errors.abs() - 0.5 * k))
-    assert loss.shape == (td_errors.shape[0], 32, 32), "huber loss has wrong shape"
-    #assert loss.shape == (td_errors.shape[0], 16, 16), "huber loss has wrong shape"
+    #assert loss.shape == (td_errors.shape[0], 32, 32), "huber loss has wrong shape"
+    assert loss.shape == (td_errors.shape[0], 8, 8), "huber loss has wrong shape"
     return loss
 
 def eval_runs(eps, frame, env):
@@ -293,17 +296,17 @@ def dict_to_features(d):
     #return torch.FloatTensor(d['values']).unsqueeze(0).numpy()
     #return torch.FloatTensor([*d['values'], *d['portfolio'], d['wealth']])
     #return torch.FloatTensor([*d['values'], *d['portfolio']])
-	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])
+	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])#,*d['alloc']])
 
 def RQ_DQN_train(env, timesteps):
     # PARAMETERS
-    seed = 100
+    seed = np.random.randint(0,100000)
+
     alpha = 0.99 # Discount factor
     tau  = 0.005 # Target network update rate    
     frames = timesteps
-    seed = 10
     BUFFER_SIZE = 10000
-    BATCH_SIZE = 60
+    BATCH_SIZE = 64
     GAMMA = 0.99
     TAU = 1e-2
     eps_frames=5000
@@ -322,7 +325,7 @@ def RQ_DQN_train(env, timesteps):
     # Set seeds
     env.seed(seed)
     env.action_space.seed(seed)
-    #torch.manual_seed(seed)
+    torch.manual_seed(seed)
     np.random.seed(seed)
 
     # action_size     = env.action_space.n #### going to fix this
@@ -333,7 +336,7 @@ def RQ_DQN_train(env, timesteps):
     agent = DQN_Agent(state_size=state_size,    
                         action_size=action_size,
                         Network="DDQN",
-                        layer_size=256,
+                        layer_size=64,
                         n_step=n_step,
                         BATCH_SIZE=BATCH_SIZE, 
                         BUFFER_SIZE=BUFFER_SIZE, 

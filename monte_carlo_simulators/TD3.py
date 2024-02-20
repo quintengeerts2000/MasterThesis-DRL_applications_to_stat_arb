@@ -6,7 +6,9 @@ from collections import deque, namedtuple
 import torch.nn.functional as F
 import os
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = device = torch.device(f'cuda:{torch.cuda.current_device()}') if torch.cuda.is_available() else 'cpu'
+
+#torch.set_default_device(device)
 
 class Actor(nn.Module):
 	def __init__(self, state_dim, action_dim, max_action, hidden_dimension):
@@ -228,7 +230,7 @@ def dict_to_features(d):
     #return torch.FloatTensor(d['values']).unsqueeze(0).numpy()
     #return torch.FloatTensor([*d['values'], *d['portfolio'], d['wealth']])
     #return torch.FloatTensor([*d['values'], *d['portfolio']])
-	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])
+	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])#,*d['alloc']])
 
 def eval_policy(policy, env, seed, eval_episodes=1):
 	
@@ -252,7 +254,7 @@ def eval_policy(policy, env, seed, eval_episodes=1):
 
 def TD3_train(env, timesteps):
 	# PARAMETERS
-	seed = 100
+	seed = np.random.randint(0,100000)
 	alpha = 0.99 # Discount factor
 	tau  = 0.005 # Target network update rate
 
@@ -275,7 +277,7 @@ def TD3_train(env, timesteps):
 	# Set seeds
 	env.seed(seed)
 	env.action_space.seed(seed)
-	#torch.manual_seed(seed)
+	torch.manual_seed(seed)
 	np.random.seed(seed)
 
 	state_dim = 4 # env.observation_space.shape[0]
@@ -371,4 +373,4 @@ def TD3_train(env, timesteps):
 			score = 0
 			episode_timesteps = 0
 			episode_num += 1
-	return policy, scores_window
+	return policy, output_history

@@ -12,6 +12,9 @@ import time
 import os
 import gym
 
+device = device = torch.device(f'cuda:{torch.cuda.current_device()}') if torch.cuda.is_available() else 'cpu'
+
+#torch.set_default_device(device)
 
 def weight_init(layers):
     for layer in layers:
@@ -162,7 +165,7 @@ class M_DQN_Agent():
         self.t_step = (self.t_step + 1) % self.UPDATE_EVERY
         if self.t_step == 0:
             # If enough samples are available in memory, get random subset and learn
-            if len(self.memory) > self.BATCH_SIZE:
+            if len(self.memory) > 5000: #self.BATCH_SIZE:
                 experiences = self.memory.sample()
                 loss = self.learn(experiences)
                 self.Q_updates += 1
@@ -317,15 +320,15 @@ def dict_to_features(d):
     #return torch.FloatTensor(d['values']).unsqueeze(0).numpy()
     #return torch.FloatTensor([*d['values'], *d['portfolio'], d['wealth']])
     #return torch.FloatTensor([*d['values'], *d['portfolio']])
-	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])
+	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])#,*d['alloc']])
 
 def MDQN_train(env, timesteps):
     # PARAMETERS
-    seed = 100
-    
+    #seed = 100
+    seed = np.random.randint(0,100000)
+
     #writer = SummaryWriter("runs/"+"DQN_LL_new_1")
     frames = timesteps
-    seed = 10
     BUFFER_SIZE = 10000
     BATCH_SIZE = 96
     GAMMA = 0.99
@@ -344,7 +347,7 @@ def MDQN_train(env, timesteps):
     # Set seeds
     env.seed(seed)
     env.action_space.seed(seed)
-    #torch.manual_seed(seed)
+    torch.manual_seed(seed)
     np.random.seed(seed)
 
     # action_size     = env.action_space.n #### going to fix this

@@ -139,6 +139,7 @@ class TradingEnvironment(gym.Env):
         else:
             #return {"values":self.X_t, "portfolio": self.pi_t, "wealth": self.W_t}
             return {"values":self.X_t, "mu": self.process.mu.flatten(), "sigma": self.process.sigma.flatten(), 'theta':self.process.theta.flatten()}
+            #return {"values":self.X_t, "mu": self.process.mu.flatten(), "sigma": self.process.sigma.flatten(), 'theta':self.process.theta.flatten(), 'alloc':self.pi_t}
 
     
     def _get_info(self):
@@ -156,9 +157,9 @@ class TradingEnvironment(gym.Env):
         X0 = self.process.X0
         self.X      = np.zeros((self.N,self.L+self.lookback))
         self.X[:,0] = X0
-        self.W     = np.zeros(self.L+self.lookback)
-        self.W[0]  = self.W0
-        self.alloc = list()
+        self.W      = np.zeros(self.L+self.lookback)
+        self.W[0]   = self.W0
+        self.alloc  = np.zeros((self.N, self.L+self.lookback))
         self.idx    = 0
 
         self.pi_t   = np.zeros(self.N)
@@ -189,14 +190,15 @@ class TradingEnvironment(gym.Env):
         # calculate the return from portfolio of time t with returns of time t+1
         dW_t = self.pi_t.squeeze().dot(self.X_t.flatten() - self.X[:,self.idx-1]) \
             + (self.W[self.idx-1] - np.abs(self.pi_t.squeeze().dot(self.p)))*self.r * self.process.delta_t \
-            - np.linalg.norm(action,1) * self.tc
+            - np.linalg.norm(self.pi_t - self.alloc[:,self.idx-1],1) * self.tc
         self.W_t = self.W[self.idx-1] + dW_t
         self.exp_val   = self.process.expected_val()
 
         # save the values 
         self.X[:,self.idx] = self.X_t
-        self.W[self.idx] = self.W_t 
-        self.alloc.append(self.pi_t)
+        self.W[self.idx] = self.W_t
+        self.alloc[:,self.idx] = self.pi_t
+        #self.alloc.append(self.pi_t)
 
         observation = self._get_obs()
         reward = dW_t.item()
