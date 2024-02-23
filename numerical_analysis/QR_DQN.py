@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import torch.optim as optim
 import torch.nn.functional as F
@@ -9,7 +10,6 @@ import math
 #from torch.utils.tensorboard import SummaryWriter
 from collections import deque, namedtuple
 import time
-import os
 import gym
 
 device = device = torch.device(f'cuda:{torch.cuda.current_device()}') if torch.cuda.is_available() else 'cpu'
@@ -20,17 +20,20 @@ def weight_init(layers):
     for layer in layers:
         torch.nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
 
-class DDQN(nn.Module):
-    def __init__(self, state_size, action_size,layer_size, seed, layer_type="ff"):
-        super(DDQN, self).__init__()
+class QR_DQN(nn.Module):
+    def __init__(self, state_size, action_size,layer_size, n_step, seed, N, layer_type="ff"):
+        super(QR_DQN, self).__init__()
         self.seed = torch.manual_seed(seed)
         self.input_shape = state_size
         self.action_size = action_size
+        self.N = N
 
         self.head_1 = nn.Linear(self.input_shape[0], layer_size)
         self.ff_1 = nn.Linear(layer_size, layer_size)
-        self.ff_2 = nn.Linear(layer_size, action_size)
+        self.ff_2 = nn.Linear(layer_size, action_size*N)
         weight_init([self.head_1, self.ff_1])
+
+
     
     def forward(self, input):
         """
@@ -40,7 +43,11 @@ class DDQN(nn.Module):
         x = torch.relu(self.ff_1(x))
         out = self.ff_2(x)
         
-        return out
+        return out.view(input.shape[0], self.N, self.action_size)
+
+    def get_action(self,input, risk_aversion=0):
+        x = self.forward(input)
+        return x.mean(dim=1) - risk_aversion * x.var(dim=1)
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -97,13 +104,15 @@ class ReplayBuffer:
         """Return the current size of internal memory."""
         return len(self.memory)
 
-class M_DQN_Agent():
+class DQN_Agent():
     """Interacts with and learns from the environment."""
 
     def __init__(self,
                  state_size,
                  action_size,
+                 Network,
                  layer_size,
+                 n_step,
                  BATCH_SIZE,
                  BUFFER_SIZE,
                  LR,
@@ -118,6 +127,7 @@ class M_DQN_Agent():
         ======
             state_size (int): dimension of each state
             action_size (int): dimension of each action
+            Network (str): dqn network type
             layer_size (int): size of the hidden layer
             BATCH_SIZE (int): size of the training batch
             BUFFER_SIZE (int): size of the replay memory
@@ -136,23 +146,23 @@ class M_DQN_Agent():
         self.GAMMA = GAMMA
         self.UPDATE_EVERY = UPDATE_EVERY
         self.BATCH_SIZE = BATCH_SIZE
-        self.ENTROPY_TAU = 0.03
-        self.ALPHA       = 0.99
-        self.LO          = -1
         self.Q_updates = 0
+        self.n_step = n_step
+        self.N = 8 #32
+        self.quantile_tau = torch.FloatTensor([i/self.N for i in range(1,self.N+1)]).to(device)
 
         self.action_step = 4
         self.last_action = None
-    
+
         # Q-Network
-        self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
-        self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
-        
+        self.qnetwork_local = QR_DQN(state_size, action_size,layer_size, n_step, seed, self.N).to(device)
+        self.qnetwork_target = QR_DQN(state_size, action_size,layer_size, n_step, seed, self.N).to(device)
+
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
         #print(self.qnetwork_local)
         
         # Replay memory
-        self.memory = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, self.device, seed, self.GAMMA, 1)
+        self.memory = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, self.device, seed, self.GAMMA, n_step)
         
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
@@ -165,13 +175,13 @@ class M_DQN_Agent():
         self.t_step = (self.t_step + 1) % self.UPDATE_EVERY
         if self.t_step == 0:
             # If enough samples are available in memory, get random subset and learn
-            if len(self.memory) > 5000: #self.BATCH_SIZE:
+            if len(self.memory) > 5000:#self.BATCH_SIZE:
                 experiences = self.memory.sample()
                 loss = self.learn(experiences)
                 self.Q_updates += 1
                 #writer.add_scalar("Q_loss", loss, self.Q_updates)
 
-    def act(self, state, eps=0.):
+    def act(self, state, eps=0.,risk_aversion=0.):
         """Returns actions for given state as per current policy. Acting only every 4 frames!
         
         Params
@@ -187,7 +197,7 @@ class M_DQN_Agent():
             state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
             self.qnetwork_local.eval()
             with torch.no_grad():
-                action_values = self.qnetwork_local(state)
+                action_values = self.qnetwork_local.get_action(state,risk_aversion=risk_aversion)
             self.qnetwork_local.train()
 
             # Epsilon-greedy action selection
@@ -212,42 +222,29 @@ class M_DQN_Agent():
             gamma (float): discount factor
         """
         self.optimizer.zero_grad()
-
-        entropy_tau = self.ENTROPY_TAU
-        alpha       = self.ALPHA
-        lo          = self.LO
-
         states, actions, rewards, next_states, dones = experiences
-        # Get predicted Q values (for next states) from target model
-        Q_targets_next = self.qnetwork_target(next_states).detach()
-        # calculate entropy term with logsum 
-        logsum = torch.logsumexp(\
-                                (Q_targets_next - Q_targets_next.max(1)[0].unsqueeze(-1))/entropy_tau , 1).unsqueeze(-1)
+        # Get max predicted Q values (for next states) from target model
+        Q_targets_next = self.qnetwork_target(next_states).detach().cpu() #.max(2)[0].unsqueeze(1) #(batch_size, 1, N)
 
-        tau_log_pi_next = Q_targets_next - Q_targets_next.max(1)[0].unsqueeze(-1) - entropy_tau*logsum
-        # target policy
-        pi_target = F.softmax(Q_targets_next/entropy_tau, dim=1)
-        Q_target = (self.GAMMA * (pi_target * (Q_targets_next-tau_log_pi_next)*(1 - dones)).sum(1)).unsqueeze(-1)
-        
-        # calculate munchausen addon with logsum trick
-        q_k_targets = self.qnetwork_target(states).detach()
-        v_k_target = q_k_targets.max(1)[0].unsqueeze(-1)
-        logsum = torch.logsumexp((q_k_targets - v_k_target)/entropy_tau, 1).unsqueeze(-1)
-        log_pi = q_k_targets - v_k_target - entropy_tau*logsum
-        munchausen_addon = log_pi.gather(1, actions)
-        
-        # calc munchausen reward:
-        munchausen_reward = (rewards + alpha*torch.clamp(munchausen_addon, min=lo, max=0))
-        
+        #TODO: hier aanpassen voor risk aware te maken
+        action_indx = torch.argmax(Q_targets_next.mean(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
+        #action_indx = torch.argmax(Q_targets_next.mean(dim=1) / Q_targets_next.var(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
+        #action_indx = torch.argmax(Q_targets_next.mean(dim=1) - 2* Q_targets_next.var(dim=1), dim=1, keepdim=True) #action indx is here to maximise avg Q
+        Q_targets_next = Q_targets_next.gather(2, action_indx.unsqueeze(-1).expand(self.BATCH_SIZE, self.N, 1)).transpose(1,2)
+
+        assert Q_targets_next.shape == (self.BATCH_SIZE,1, self.N)
         # Compute Q targets for current states 
-        Q_targets = munchausen_reward + Q_target
-        
+        Q_targets = rewards.unsqueeze(-1) + (self.GAMMA**self.n_step * Q_targets_next.to(self.device) * (1 - dones.unsqueeze(-1)))
         # Get expected Q values from local model
-        q_k = self.qnetwork_local(states)
-        Q_expected = q_k.gather(1, actions)
-        
+        Q_expected = self.qnetwork_local(states).gather(2, actions.unsqueeze(-1).expand(self.BATCH_SIZE, self.N, 1))
         # Compute loss
-        loss = F.mse_loss(Q_expected, Q_targets) #mse_loss
+        td_error = Q_targets - Q_expected
+        assert td_error.shape == (self.BATCH_SIZE, self.N, self.N), "wrong td error shape"
+        huber_l = calculate_huber_loss(td_error, 1.0)
+        quantil_l = abs(self.quantile_tau -(td_error.detach() < 0).float()) * huber_l / 1.0
+
+        loss = quantil_l.sum(dim=1).mean(dim=1) # , keepdim=True if per weights get multipl
+        loss = loss.mean()
         # Minimize the loss
         loss.backward()
         #clip_grad_norm_(self.qnetwork_local.parameters(),1)
@@ -268,39 +265,20 @@ class M_DQN_Agent():
         """
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(self.TAU*local_param.data + (1.0-self.TAU)*target_param.data)
+            
+def calculate_huber_loss(td_errors, k=1.0):
+    """
+    Calculate huber loss element-wisely depending on kappa k.
+    """
+    loss = torch.where(td_errors.abs() <= k, 0.5 * td_errors.pow(2), k * (td_errors.abs() - 0.5 * k))
+    #assert loss.shape == (td_errors.shape[0], 32, 32), "huber loss has wrong shape"
+    assert loss.shape == (td_errors.shape[0], 8, 8), "huber loss has wrong shape"
+    return loss
 
-def eval_runs(eps, frame):
+def eval_runs(eps, frame, env):
     """
     Makes an evaluation run with the current epsilon
     """
-    env = gym.make("CartPole-v0")
-    reward_batch = []
-    for i in range(5):
-        state = env.reset()
-        rewards = 0
-        while True:
-            action = agent.act(state, eps)
-            state, reward, done, _ = env.step(action)
-            rewards += reward
-            if done:
-                break
-        reward_batch.append(rewards)
-        
-    #writer.add_scalar("Reward", np.mean(reward_batch), frame)
-    
-def eval_runs(eps, frame):
-    """
-    Makes an evaluation run with the current epsilon
-    """
-    #env = gym.make("CartPole-v0")
-    p = np.ones(N)
-    #process = ornstein_uhlenbeck_process(theta,mu,sigma,delta_t)
-    #N = 1
-    process = OU_process_shuffler(N,T,L)
-    r = 0.0
-    tc = 0.0
-    env = TradingEnvironment(process,T,r,p,mode='portfolio', max_pi=1, max_change=1,initial_wealth=0, transaction_costs=tc)
-
     reward_batch = []
     for i in range(5):
         state, _ = env.reset()
@@ -315,22 +293,21 @@ def eval_runs(eps, frame):
                 break
         reward_batch.append(rewards)
 
-
 def dict_to_features(d):
     #return torch.FloatTensor(d['values']).unsqueeze(0).numpy()
     #return torch.FloatTensor([*d['values'], *d['portfolio'], d['wealth']])
     #return torch.FloatTensor([*d['values'], *d['portfolio']])
 	return torch.FloatTensor([*d['values'], *d['mu'],*d['sigma'],*d['theta']])#,*d['alloc']])
 
-def MDQN_train(env, timesteps):
+def RQ_DQN_train(env, timesteps):
     # PARAMETERS
-    #seed = 100
     seed = np.random.randint(0,100000)
 
-    #writer = SummaryWriter("runs/"+"DQN_LL_new_1")
+    alpha = 0.99 # Discount factor
+    tau  = 0.005 # Target network update rate    
     frames = timesteps
-    BUFFER_SIZE = 10000
-    BATCH_SIZE = 96
+    BUFFER_SIZE = 1000000
+    BATCH_SIZE = 64
     GAMMA = 0.99
     TAU = 1e-2
     eps_frames=5000
@@ -338,8 +315,10 @@ def MDQN_train(env, timesteps):
     LR = 1e-3
     UPDATE_EVERY = 1
     n_step = 1
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Using ", device)
+
     eps_fixed = False
     SAVE_MODEL = False
     file_name = 'N1'
@@ -355,9 +334,11 @@ def MDQN_train(env, timesteps):
     #state_size        = env.observation_space.shape
     state_size        = [4]
 
-    agent = M_DQN_Agent(state_size=state_size,    
+    agent = DQN_Agent(state_size=state_size,    
                         action_size=action_size,
+                        Network="DDQN",
                         layer_size=64,
+                        n_step=n_step,
                         BATCH_SIZE=BATCH_SIZE, 
                         BUFFER_SIZE=BUFFER_SIZE, 
                         LR=LR, 
@@ -409,5 +390,7 @@ def MDQN_train(env, timesteps):
             i_episode +=1 
             state, _ = env.reset()
             state = dict_to_features(state)
-            score = 0  
-    return agent, output_history
+            score = 0
+
+    return agent, output_history            
+    ######
