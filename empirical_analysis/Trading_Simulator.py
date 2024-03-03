@@ -73,9 +73,10 @@ class TradingEnvironment(gym.Env):
         self.old_alloc_total = np.zeros((self.N,))
 
         observation = self._get_next_obs()
-        while sum(self.tradeable_stocks) == 0:
-            n = sum(self.tradeable_stocks)
+        while sum(self.tradeables) == 0:
+            n = sum(self.tradeables)
             observation, _, _, _ = self.step(np.zeros((n,1)))
+        self.start_t = self.t
         info = {'used_stocks': self.active_stocks}
         return observation, info
     
@@ -90,24 +91,30 @@ class TradingEnvironment(gym.Env):
         '''
         self.t    += 1
         self.t_ep += 1
-        if self.t_ep >= self.ep_N:
-            self.ep += 1
 
     @property
     def date(self):
         return self.data.index[self.t]
     
     @property
-    def trade_able_ticker(self):
-        return self.data.columns[self.tradeable_stocks]
+    def tradeable_tickers(self):
+        return self.data.columns[self.tradeables]
+    
+    @property
+    def old_tradeable_tickers(self):
+        return self.data.columns[self.old_tradeables]
 
     def _get_next_obs(self):
         # the the returns at time (t) from the residual portfolios generated at time (t-1)
         # generate the signal vector from the residual portfolio returns 
         # generate the new residual portfolios to trade in
-        self.tradeable_stocks = ~np.any(np.isnan(self.res_rets.iloc[self.t - self.sig_win + 1: self.t + 1].values.astype(float)), axis = 0).ravel()
-        obs = self.sig_gen(self.res_rets.iloc[self.t - self.sig_win + 1: self.t + 1, self.tradeable_stocks])
-        return obs
+        input_data = self.res_rets.iloc[self.t - self.sig_win + 1: self.t + 1]
+        self.tradeables = ~np.any(np.isnan(input_data.values.astype(float)), axis = 0).ravel()
+        obs = self.sig_gen(self.res_rets.iloc[self.t - self.sig_win + 1: self.t + 1, self.tradeables])
+        observation = pd.DataFrame(columns=input_data.columns)
+
+        observation[self.tradeable_tickers] = obs.T
+        return observation
 
     def calculate_transaction_cost(self):
         '''
@@ -119,28 +126,39 @@ class TradingEnvironment(gym.Env):
         tc_vector = self.tc * np.linalg.norm(self.new_alloc - self.old_alloc,1,axis=1) \
                         + self.sc * np.linalg.norm(np.minimum(self.new_alloc, np.zeros((self.N,self.N))))
 
-        tc_total = self.tc * np.linalg.norm(self.new_alloc_total -self.old_alloc_total,1) \
+        tc_total = self.tc * np.linalg.norm(self.new_alloc_total - self.old_alloc_total,1) \
                         + self.sc * np.linalg.norm(np.minimum(self.new_alloc_total, np.zeros(self.N)))
         return tc_vector, tc_total
 
     def evaluate_performance(self):
-        perf = self.total_pl.iloc[self.t - self.ep_N].values
-
+        perf = self.total_pl.iloc[self.t - self.ep_N + 1:self.t + 1].values
         # Compute cumulative return
         cumulative_return = np.prod(1 + perf) - 1
-
         # Calculate annualized return
         annualized_return = (1 + cumulative_return)**(252/self.ep_N) - 1
-
         # Calculate volatility (standard deviation)
         volatility = np.std(perf)
-
         # Annualize volatility
         annualized_volatility = volatility * np.sqrt(252)
-
-        print("Annualized Return:", annualized_return)
-        print("Annualized Sharpe (Shape):", annualized_return / annualized_volatility)
-
+        print("\r Episode: {} -- Annualized Return: {}% -- Annualized Volatility: {}% -- Annualized Sharpe: {}"
+              .format(self.ep, round(annualized_return*100,2),
+                      round(annualized_volatility*100,2),
+                round(annualized_return / annualized_volatility, 2)))
+        
+        perf_tot = self.total_pl.iloc[self.start_t + 1:self.t + 1].values
+        # Compute cumulative return
+        cumulative_return = np.prod(1 + perf_tot) - 1
+        # Calculate annualized return
+        annualized_return = (1 + cumulative_return)**(252/(self.t - self.start_t)) - 1
+        # Calculate volatility (standard deviation)
+        volatility = np.std(perf_tot)
+        # Annualize volatility
+        annualized_volatility = volatility * np.sqrt(252)
+        print("\r Episode: {} -- Total ann. Return: {}% -- Total ann. Volatility: {}% -- Total ann. Sharpe: {}"
+              .format(self.ep, round(annualized_return*100,2),
+                      round(annualized_volatility*100,2),
+                round(annualized_return / annualized_volatility, 2)))
+        self.ep += 1
     
     def step(self,action):
         '''
@@ -151,18 +169,18 @@ class TradingEnvironment(gym.Env):
         will be be returned to the reinforcement learning agent as a reward signal.
         However, in the real environment there is a shared portfolio that will also be updated.
         '''
-        assert len(action) == sum(self.tradeable_stocks), 'wrong size of action/allocation vector supplied'
+        assert len(action) == sum(self.tradeables), 'wrong size of action/allocation vector supplied'
 
         ########### Time: t-1 #############
 
         # "invest" the chosen amount Action
         allocation_in_residuals = np.zeros((self.N,1))
-        allocation_in_residuals[self.tradeable_stocks] = action
+        allocation_in_residuals[self.tradeables] = action
 
         # calculate the new allocation in terms of the true asset space
         self.new_alloc = (self.res_portf * np.tile(allocation_in_residuals, (1, self.N)))                 # per residual portf.
         self.new_alloc_total  = self.new_alloc.sum(axis=0) 
-        self.new_alloc_total /= np.linalg.norm(self.new_alloc_total,1)  # for the entire (normalized) portf.
+        self.new_alloc_total /= (np.linalg.norm(self.new_alloc_total,1)+ 1e-6)  # for the entire (normalized) portf.
 
         # we incur a transaction cost through this new allocation
         self.tc_vector, self.tc_total = self.calculate_transaction_cost()
@@ -176,11 +194,12 @@ class TradingEnvironment(gym.Env):
         #TODO: debug this!!
         portf_change  = self.new_alloc @ self.returns.iloc[self.t].replace(np.nan,0).values
         reward        = portf_change - self.tc_vector
+        reward        = pd.DataFrame(data=reward.reshape(1,-1), columns=self.data.columns)
 
         # calculate the general profit made by the whole portfolio
         change_total  = self.new_alloc_total @ self.returns.iloc[self.t].replace(np.nan,0).values
-        p_l           = change_total - self.tc_total
-        self.total_pl.loc[self.date, 'strategy']  = p_l
+        self.p_l      = change_total - self.tc_total
+        self.total_pl.loc[self.date, 'strategy']  = self.p_l
 
         # save the old allocations and store them 
         self.old_alloc       = self.new_alloc.copy()
@@ -189,6 +208,7 @@ class TradingEnvironment(gym.Env):
         self.asset_alloc.loc[self.date] = self.new_alloc_total.flatten()
 
         # prepare the next observation, the new returns were already calulated in res_rets_step
+        self.old_tradeables = self.tradeables
         observation = self._get_next_obs()
 
         # calculate the new residual portfolio weights at time t
@@ -196,11 +216,13 @@ class TradingEnvironment(gym.Env):
                                                     amount_of_factors=5,
                                                     loadings_window_size=self.sig_win)
 
-        if self.t % self.ep_N == 0:
-            done = True
-        else:
-            done = False
-        info = {}
+        # keep track of which stocks are added and removed
+        changes = self.tradeables.astype(int) - self.old_tradeables.astype(int)
+        added   = self.data.columns[changes == 1]
+        removed = self.data.columns[changes == -1]
+        info = {'added_tickers':added, 'removed_tickers':removed} # give the info of which stocks were added/removed 
+        done = pd.DataFrame(data=(changes == -1).reshape(1,-1), columns=self.data.columns)
+
         return observation, reward, done, info
 
 def fourier_signal_extractor(residuals_data:pd.DataFrame, output_size:int=30):
@@ -210,11 +232,11 @@ def fourier_signal_extractor(residuals_data:pd.DataFrame, output_size:int=30):
     L, N = residuals_data.shape
     assert L >= output_size, "can't calculate fourier transform for more than the input amount of data"
     res_window = (residuals_data + 1).cumprod().values[1:,:] - 1
-    Fourier    = np.fft.rfft(res_window,axis=0, n=output_size//2)
+    Fourier    = np.fft.rfft(res_window,axis=0)#, n=output_size//2)
     n_f        = Fourier.shape[0]
-    out        = np.zeros((N,n_f*2))
+    out        = np.zeros((N,n_f*2-1))
     out[:,:n_f]= np.real(Fourier).T
-    out[:,n_f:]= np.imag(Fourier).T #geen idee maar in andere papers doen ze dit ook
+    out[:,n_f:]= np.imag(Fourier[1:,:]).T #geen idee maar in andere papers doen ze dit ook
     return out
 
 def pca_res_gen(price_data:pd.DataFrame, 

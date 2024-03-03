@@ -65,6 +65,7 @@ class ReplayBuffer:
     def add(self, state, action, reward, next_state, done):
         """Add a new experience to memory."""
         #print("before:", state,action,reward,next_state, done)
+        n = state.shape[0]
         self.n_step_buffer.append((state, action, reward, next_state, done))
         if len(self.n_step_buffer) == self.n_step:
             state, action, reward, next_state, done = self.calc_multistep_return()
@@ -216,7 +217,7 @@ class M_DQN_Agent():
         
         if self.action_step == 4:
             state = np.array(state)
-
+            n     = state.shape[0]
             state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
             self.qnetwork_local.eval()
             with torch.no_grad():
@@ -225,11 +226,11 @@ class M_DQN_Agent():
 
             # Epsilon-greedy action selection
             if random.random() > eps: # select greedy action if random number is higher than epsilon or noisy network is used!
-                action = np.argmax(action_values.cpu().data.numpy())
+                action = np.argmax(action_values.cpu().data.numpy(),axis=2)
                 self.last_action = action
                 return action
             else:
-                action = random.choice(np.arange(self.action_size))
+                action = np.random.choice(np.arange(self.action_size),(1,n))
                 self.last_action = action 
                 return action
             #self.action_step = 0
