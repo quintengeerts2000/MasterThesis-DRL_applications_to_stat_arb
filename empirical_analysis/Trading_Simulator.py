@@ -15,7 +15,9 @@ class TradingEnvironment(gym.Env):
                  signal_generator,
                  episode_length:int=100,
                  lookback_window:int=252,
-                 signal_window:int=60,
+                 loading_window:int=60,
+                 factors:int=5,
+                 signal_window:int=30,
                  transaction_costs:float=0.0,
                  short_cost:float=0.0) -> None:
         '''
@@ -44,6 +46,8 @@ class TradingEnvironment(gym.Env):
         self.sc        = short_cost        # cost to keep a short position
         self.lbw       = lookback_window   # lookback window used for pca 
         self.sig_win   = signal_window     # lookback window used for signals
+        self.load_win  = loading_window
+        self.factors   = factors
 
         self.t         = self.lbw + 1 #current timestep idx position in the large dataset
         self.ep        = 0  # current episode
@@ -65,8 +69,8 @@ class TradingEnvironment(gym.Env):
 
             # calculate the new residual portfolio weights at time t (in pandas :t+1, means the last row is at time t)
             self.res_portf, self.active_stocks  = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
-                                                        amount_of_factors=5,
-                                                        loadings_window_size=self.sig_win)
+                                                        amount_of_factors=self.factors,
+                                                        loadings_window_size=self.load_win)
         
         # initialise the allocation vectors 
         self.old_alloc       = np.zeros((self.N,self.N))
@@ -213,8 +217,8 @@ class TradingEnvironment(gym.Env):
 
         # calculate the new residual portfolio weights at time t
         self.res_portf, self.active_stocks   = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
-                                                    amount_of_factors=5,
-                                                    loadings_window_size=self.sig_win)
+                                                    amount_of_factors=self.factors,
+                                                    loadings_window_size=self.load_win)
 
         # keep track of which stocks are added and removed
         changes = self.tradeables.astype(int) - self.old_tradeables.astype(int)
