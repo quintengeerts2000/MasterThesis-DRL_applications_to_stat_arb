@@ -2,8 +2,6 @@ import gym
 import pandas as pd
 import datetime as dt
 import numpy as np
-from numpy.linalg import eig, norm
-from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 import time
 
@@ -12,25 +10,23 @@ class TradingEnvironment(gym.Env):
     def __init__(self, 
                  financial_dataset:pd.DataFrame,
                  residual_generator,
-                 signal_generator,
                  episode_length:int=100,
                  lookback_window:int=252,
                  loading_window:int=60,
                  factors:int=5,
-                 signal_window:int=30,
+                 signal_window:int=60,
                  transaction_costs:float=0.0,
                  short_cost:float=0.0) -> None:
         '''
         financial_dataset: is a dataframe containing the adjusted prices of all the assets
         residual_generator: a function, called every timestep, whose input is a lookback window of asset prices, and then 
-                            calculates the residual portfolios at that time.
-        signal_generator:  a function, called every timestep, whose input is a lookback window of residual returns, that extracts 
-                            the signal from the lookback window
+                            calculates the residual portfolios at that time.w
         '''
         super().__init__()
 
         self.L, self.N = financial_dataset.shape # amount of datapoints, amount of stocks
-        self.data      = financial_dataset  # dataset 
+        financial_dataset = financial_dataset.astype(float)
+        self.data      = financial_dataset       # dataset 
         self.returns   = financial_dataset.pct_change(1,fill_method=None) # compute returns 
         self.res_rets  = pd.DataFrame(index=self.data.index, columns=self.data.columns) # dataframe used to store the residual returns
         self.res_alloc = pd.DataFrame(index=self.data.index, columns=self.data.columns) # dataframe used to store the chosen allocation per residual portfolio
@@ -39,7 +35,6 @@ class TradingEnvironment(gym.Env):
 
         # both generic functions so they can be swapped in the future
         self.res_gen   = residual_generator 
-        self.sig_gen   = signal_generator
 
         self.ep_N      = episode_length    # amount of timesteps until an 'episode' is over
         self.tc        = transaction_costs # transaction cost used
@@ -55,7 +50,7 @@ class TradingEnvironment(gym.Env):
 
         self.t_ep    = 0 # current timestep in the epsisode (max is self.ep_N)
 
-    def warm_up(self):
+    def warm_up(self, warmup_time:int=0):
         # if at initialisation
         assert self.ep == 0
 
@@ -77,18 +72,19 @@ class TradingEnvironment(gym.Env):
         self.old_alloc_total = np.zeros((self.N,))
 
         observation = self._get_next_obs()
-        while sum(self.tradeables) == 0:
+        while (sum(self.tradeables)) == 0 or (self.t < warmup_time):
             n = sum(self.tradeables)
             observation, _, _, _ = self.step(np.zeros((n,1)))
         self.start_t = self.t
         info = {'used_stocks': self.active_stocks}
+        print('environment ready')
         return observation, info
     
     def res_rets_step(self):
         self.res_portf_previous = self.res_portf.copy()
         self.res_rets.iloc[self.t,self.active_stocks] = (self.res_portf @ \
                         self.returns.iloc[self.t].replace(np.nan,0).values)[self.active_stocks]
-        
+            
     def iter_step(self):
         '''
         keeps track of all timesteps
@@ -112,13 +108,9 @@ class TradingEnvironment(gym.Env):
         # the the returns at time (t) from the residual portfolios generated at time (t-1)
         # generate the signal vector from the residual portfolio returns 
         # generate the new residual portfolios to trade in
-        input_data = self.res_rets.iloc[self.t - self.sig_win + 1: self.t + 1]
-        self.tradeables = ~np.any(np.isnan(input_data.values.astype(float)), axis = 0).ravel()
-        obs = self.sig_gen(self.res_rets.iloc[self.t - self.sig_win + 1: self.t + 1, self.tradeables])
-        observation = pd.DataFrame(columns=input_data.columns)
-
-        observation[self.tradeable_tickers] = obs.T
-        return observation
+        observation = self.res_rets.iloc[self.t - self.sig_win + 1: self.t + 1]
+        self.tradeables = ~np.any(np.isnan(observation.values.astype(float)), axis = 0).ravel()
+        return observation.astype(float)
 
     def calculate_transaction_cost(self):
         '''
@@ -229,77 +221,3 @@ class TradingEnvironment(gym.Env):
         done = pd.DataFrame(data=(changes == -1).reshape(1,-1), columns=self.data.columns)
 
         return observation, reward, done, info
-
-def fourier_signal_extractor(residuals_data:pd.DataFrame, output_size:int=30):
-    '''
-    All the data input in this function should be considered in sample
-    '''
-    L, N = residuals_data.shape
-    assert L >= output_size, "can't calculate fourier transform for more than the input amount of data"
-    res_window = (residuals_data + 1).cumprod().values[1:,:] - 1
-    Fourier    = np.fft.rfft(res_window,axis=0)#, n=output_size//2)
-    n_f        = Fourier.shape[0]
-    out        = np.zeros((N,n_f*2-1))
-    out[:,:n_f]= np.real(Fourier).T
-    out[:,n_f:]= np.imag(Fourier[1:,:]).T #geen idee maar in andere papers doen ze dit ook
-    return out
-
-def fourier_2timeframe(residuals_data:pd.DataFrame):
-    '''
-    All the data input in this function should be considered in sample
-    '''
-    L, N = residuals_data.shape
-    res_window_small = (residuals_data + 1).cumprod().values[-30:,:] - 1
-    res_window_big   = (residuals_data + 1).cumprod().values[1:,:] - 1
-    Fourier_small    = np.fft.rfft(res_window_small,axis=0)
-    n_f        = Fourier_small.shape[0]
-    Fourier_big      = np.fft.rfft(res_window_big,axis=0,n=n_f*2-1)
-
-    out                = np.zeros((N,n_f*4-2))
-    out[:,:n_f]        = np.real(Fourier_small).T
-    out[:,n_f:n_f*2-1] = np.imag(Fourier_small[1:,:]).T #geen idee maar in andere papers doen ze dit ook
-
-    out[:,n_f*2-1:n_f*3-1]= np.real(Fourier_big).T
-    out[:,n_f*3-1:]    = np.imag(Fourier_big[1:,:]).T
-    return out
-
-def pca_res_gen(price_data:pd.DataFrame, 
-                amount_of_factors:int=5,
-                loadings_window_size:int=60)-> np.ndarray:
-    '''
-    Calculates the pca portfolio given a dataset with prices
-    '''
-
-    T, N         = price_data.shape 
-    assert loadings_window_size < T, 'loading window larger than length of dataset supplied' 
-
-    rets         = price_data.pct_change(1,fill_method=None).iloc[1:].to_numpy()
-    idxsSelected = ~np.any(np.isnan(rets), axis = 0).ravel()
-    if idxsSelected.sum() == 0:
-            return np.zeros((N,N))
-    
-    rets_is     = rets[:,idxsSelected] # in sample returns: used for generating the portfolio
-
-    # Calculate PCA
-    rets_mean       = np.mean(rets_is, axis=0,keepdims=True)
-    rets_vol        = np.sqrt(np.mean((rets_is-rets_mean)**2,axis=0,keepdims=True))
-    rets_normalized = (rets_is - rets_mean) / rets_vol #TODO: wat als rets_vol = 0?
-    Corr            = np.dot(rets_normalized.T, rets_normalized)
-    _, eigenVectors = np.linalg.eigh(Corr)
-
-    # Calculate loadings
-    w           = eigenVectors[:,-amount_of_factors:].real  
-    R           = rets_is[-loadings_window_size:,:]
-    wtR         = R @ w  
-    regr        = LinearRegression(fit_intercept=False, n_jobs=-1).fit(wtR,R)
-    beta        = regr.coef_                                                    #beta
-    psi         = (np.eye(beta.shape[0]) - beta @ w.T)
-
-    # Calculate residual returns
-    residual_portf = np.zeros((N,N))
-    i = 0
-    for idx, val in enumerate(idxsSelected):
-         if val:
-               residual_portf[idx,idxsSelected] = psi[i,:].reshape([1,-1])
-               i += 1
-    return residual_portf, idxsSelected
