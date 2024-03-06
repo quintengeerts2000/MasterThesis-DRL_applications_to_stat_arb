@@ -128,10 +128,11 @@ class TradingEnvironment(gym.Env):
         tc_total is a real that contains the true total transaction cost incurred by the 
         '''
         tc_vector = self.tc * np.linalg.norm(self.new_alloc - self.old_alloc,1,axis=1) \
-                        + self.sc * np.linalg.norm(np.minimum(self.new_alloc, np.zeros((self.N,self.N))))
+                        + self.sc * np.linalg.norm(np.minimum(self.new_alloc, np.zeros((self.N,self.N))),1,axis=1)
 
         tc_total = self.tc * np.linalg.norm(self.new_alloc_total - self.old_alloc_total,1) \
-                        + self.sc * np.linalg.norm(np.minimum(self.new_alloc_total, np.zeros(self.N)))
+                        + self.sc * np.linalg.norm(np.minimum(self.new_alloc_total, np.zeros(self.N)),1)
+        
         return tc_vector, tc_total
 
     def evaluate_performance(self):
@@ -243,6 +244,25 @@ def fourier_signal_extractor(residuals_data:pd.DataFrame, output_size:int=30):
     out[:,n_f:]= np.imag(Fourier[1:,:]).T #geen idee maar in andere papers doen ze dit ook
     return out
 
+def fourier_2timeframe(residuals_data:pd.DataFrame):
+    '''
+    All the data input in this function should be considered in sample
+    '''
+    L, N = residuals_data.shape
+    res_window_small = (residuals_data + 1).cumprod().values[-30:,:] - 1
+    res_window_big   = (residuals_data + 1).cumprod().values[1:,:] - 1
+    Fourier_small    = np.fft.rfft(res_window_small,axis=0)
+    n_f        = Fourier_small.shape[0]
+    Fourier_big      = np.fft.rfft(res_window_big,axis=0,n=n_f*2-1)
+
+    out                = np.zeros((N,n_f*4-2))
+    out[:,:n_f]        = np.real(Fourier_small).T
+    out[:,n_f:n_f*2-1] = np.imag(Fourier_small[1:,:]).T #geen idee maar in andere papers doen ze dit ook
+
+    out[:,n_f*2-1:n_f*3-1]= np.real(Fourier_big).T
+    out[:,n_f*3-1:]    = np.imag(Fourier_big[1:,:]).T
+    return out
+
 def pca_res_gen(price_data:pd.DataFrame, 
                 amount_of_factors:int=5,
                 loadings_window_size:int=60)-> np.ndarray:
@@ -263,7 +283,7 @@ def pca_res_gen(price_data:pd.DataFrame,
     # Calculate PCA
     rets_mean       = np.mean(rets_is, axis=0,keepdims=True)
     rets_vol        = np.sqrt(np.mean((rets_is-rets_mean)**2,axis=0,keepdims=True))
-    rets_normalized = (rets_is - rets_mean) / rets_vol
+    rets_normalized = (rets_is - rets_mean) / rets_vol #TODO: wat als rets_vol = 0?
     Corr            = np.dot(rets_normalized.T, rets_normalized)
     _, eigenVectors = np.linalg.eigh(Corr)
 
