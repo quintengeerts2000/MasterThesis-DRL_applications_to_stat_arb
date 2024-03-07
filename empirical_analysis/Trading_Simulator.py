@@ -177,7 +177,7 @@ class TradingEnvironment(gym.Env):
         # calculate the new allocation in terms of the true asset space
         self.new_alloc = (self.res_portf * np.tile(allocation_in_residuals, (1, self.N)))                 # per residual portf.
         self.new_alloc_total  = self.new_alloc.sum(axis=0) 
-        self.new_alloc_total /= (np.linalg.norm(self.new_alloc_total,1)+ 1e-6)  # for the entire (normalized) portf.
+        self.new_alloc_total /= (np.linalg.norm(self.new_alloc_total,1)+ 1e-8)  # for the entire (normalized) portf.
 
         # we incur a transaction cost through this new allocation
         self.tc_vector, self.tc_total = self.calculate_transaction_cost()

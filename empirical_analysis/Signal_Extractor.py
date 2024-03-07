@@ -29,6 +29,28 @@ class FourierExtractor():
         out[:,n_f:]= np.imag(Fourier[:,1:-1])
         return out.astype(float)
     
+class CumsumExtractor():
+    def __init__(self, signal_window:int=30) -> None:
+        self.signal_window = signal_window
+    
+    def reset(self):
+        None
+    
+    def train(self,train_data=pd.DataFrame):
+        None
+
+    def re_train(self, **kwargs):
+        None
+
+    def extract(self,residuals_data:pd.DataFrame):
+        '''
+        All the data input in this function should be considered in sample
+        '''
+        N, L = residuals_data.shape
+        assert L == self.signal_window, "can't calculate fourier transform for more than the input amount of data"
+        out = (residuals_data + 1).cumprod(axis=1) - 1
+        return out
+    
 class CNNTransformerExtractor():
     def __init__(self, signal_window:int=60) -> None:
         self.signal_window   = signal_window
@@ -176,7 +198,10 @@ class CNNTransformer(nn.Module):
         return self.linear(x[-1,:,:]).squeeze() #this outputs the weights #self.softmax(x[-1,:,:]) #(N,num_classes)
     
     def extr_sig(self,x): #x has dimension (N,T)
-        N,T = x.shape
+        if len(x.shape) == 3:
+            _,N,T = x.shape
+        else:
+            N,T = x.shape
         x = x.reshape((N,1,T))  #(N,1,T)
         if self.use_convolution:
             for i in range(len(self.filter_numbers)-1):
