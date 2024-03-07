@@ -65,6 +65,27 @@ class CNNTransformerExtractor():
         print('Finished training the prediction module')
         self.model.eval()
     
+    def re_train(self, train_data=pd.DataFrame, sample_size:int=64):
+        self.model.train()
+        shuffled_idxs = random.sample(list(range(self.signal_window + 1,len(train_data)-1)), sample_size)
+        # training loop for training the vision transformer model
+        for idx in shuffled_idxs:
+            window    = train_data.iloc[idx - self.signal_window: idx+1].values.astype(float)
+            idxsSelected = ~np.any(np.isnan(window), axis = 0).ravel()
+            if idxsSelected.sum() == 0:
+                continue
+            inputVars = torch.FloatTensor((window[:-1,idxsSelected]+1).T.cumprod(axis=1))
+            target    = torch.FloatTensor(window[-1,idxsSelected].T)
+
+            pred      = self.model.forward(inputVars)
+            loss      = self.mse(pred,target)
+            self.losses.append(loss.item())
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+        self.model.eval()
+    
     def predict(self, residuals_data):
         res_window = torch.FloatTensor((residuals_data + 1).cumprod(axis=1).astype(float))
         return self.model(res_window).detach().numpy()
