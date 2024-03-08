@@ -137,7 +137,8 @@ class M_DQN_Agent():
                  GAMMA,
                  UPDATE_EVERY,
                  device,
-                 seed):
+                 seed,
+                 use_transf=False):
         """Initialize an Agent object.
         
         Params
@@ -171,8 +172,12 @@ class M_DQN_Agent():
         self.last_action = None
     
         # Q-Network
-        self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
-        self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
+        if not use_transf:
+            self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
+            self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
+        else:
+            self.qnetwork_local = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
+            self.qnetwork_target = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
         
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
         #print(self.qnetwork_local)
@@ -254,7 +259,7 @@ class M_DQN_Agent():
                 if action_values.dim() == 3:
                     action = np.argmax(action_values.cpu().data.numpy(),axis=2)
                 else:
-                    action = np.argmax(action_values.cpu().data.numpy(),axis=1)
+                    action = np.argmax(action_values.cpu().data.numpy(),axis=1).reshape(1,-1)
                 self.last_action = action
                 return action
             else:

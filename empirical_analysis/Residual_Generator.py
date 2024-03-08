@@ -35,7 +35,7 @@ def PCA(price_data:pd.DataFrame,
     beta        = regr.coef_                                                    #beta
     psi         = (np.eye(beta.shape[0]) - beta @ w.T)
 
-    # Calculate residual returns
+    # reshape the loadings matrix
     residual_portf = np.zeros((N,N))
     i = 0
     for idx, val in enumerate(idxsSelected):

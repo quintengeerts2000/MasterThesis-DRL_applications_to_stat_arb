@@ -118,7 +118,7 @@ class CNNTransformerExtractor():
         res_window = torch.FloatTensor((residuals_data + 1).cumprod(axis=1).astype(float))
         return self.model.extr_sig(res_window).detach().numpy()
 
-
+### deep learning model code below ###
 
 class CNN_Block(nn.Module):
     def __init__(self, in_filters=1, out_filters=8, normalization=True, filter_size=2):
