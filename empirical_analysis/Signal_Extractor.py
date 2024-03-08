@@ -89,7 +89,8 @@ class CNNTransformerExtractor():
     
     def re_train(self, train_data=pd.DataFrame, sample_size:int=64):
         self.model.train()
-        shuffled_idxs = random.sample(list(range(self.signal_window + 1,len(train_data)-1)), sample_size)
+        idxs = list(range(self.signal_window + 1,len(train_data)-1))
+        shuffled_idxs = random.sample(idxs, min(len(idxs),sample_size))
         # training loop for training the vision transformer model
         for idx in shuffled_idxs:
             window    = train_data.iloc[idx - self.signal_window: idx+1].values.astype(float)
@@ -156,10 +157,10 @@ class CNNTransformer(nn.Module):
                  random_seed = 0, 
                  device = "cpu", # other options for device are e.g. "cuda:0"
                  normalization_conv = True, 
-                 filter_numbers = [1,8], 
+                 filter_numbers = [1,8], #8
                  attention_heads = 4, 
                  use_convolution = True,
-                 hidden_units = 2*8, 
+                 hidden_units = 2*8, #8
                  hidden_units_factor = 2,
                  dropout = 0.25, 
                  filter_size = 2, 
