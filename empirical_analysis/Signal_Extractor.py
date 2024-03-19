@@ -6,27 +6,38 @@ import numpy as np
 import pandas as pd
 
 class FourierExtractor():
-    def __init__(self, signal_window:int=30) -> None:
+    def __init__(self,add_alloc, signal_window:int=30) -> None:
         self.signal_window = signal_window
-    
+        self.add_alloc     = add_alloc #meaning the last row of the input residual data is the previous allocation
+
     def reset(self):
         None
     
     def train(self,train_data=pd.DataFrame):
         None
 
-    def extract(self,residuals_data:pd.DataFrame):
+    def re_train(self, **kwargs):
+        None
+
+    def extract(self,data:pd.DataFrame):
         '''
         All the data input in this function should be considered in sample
         '''
-        N, L = residuals_data.shape
+        N, L = data.shape
+        if self.add_alloc:
+            L = L-1
         assert L == self.signal_window, "can't calculate fourier transform for more than the input amount of data"
-        res_window = (residuals_data + 1).cumprod(axis=1) - 1
+        if self.add_alloc:
+            res_window = (data[:-1,:] + 1).cumprod(axis=1) - 1
+        else:
+            res_window = (data + 1).cumprod(axis=1) - 1
         Fourier    = np.fft.rfft(res_window,axis=1)
         n_f        = Fourier.shape[1]
         out        = np.zeros((N,n_f*2-2))
         out[:,:n_f]= np.real(Fourier)
         out[:,n_f:]= np.imag(Fourier[:,1:-1])
+        if self.add_alloc:
+            out = np.vstack([out, data[-1,:]])
         return out.astype(float)
     
 class CumsumExtractor():

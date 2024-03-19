@@ -67,10 +67,34 @@ class DDQN(nn.Module):
         
         return out
 
+class DDQN_alloc(nn.Module):
+    def __init__(self, state_size, action_size,hidden_layers, seed, layer_type="ff"):
+        super(DDQN_alloc, self).__init__()
+        self.seed = torch.manual_seed(seed)
+        self.input_shape = state_size
+        self.action_size = action_size
+
+        self.head_1 = nn.Linear(self.input_shape[0], hidden_layers[0]) # input = 30 -> 16
+        self.ff_1 = nn.Linear(hidden_layers[0], hidden_layers[1])      # 16 -> 8
+        self.ff_2 = nn.Linear(hidden_layers[1], hidden_layers[2])      # 8  -> 4
+
+        self.ff_alloc = nn.Linear(hidden_layers[2] + 1, action_size)   # 4 features + current alloc -> actions
+        weight_init([self.head_1, self.ff_1])
+    
+    def forward(self, input):
+        """
+        
+        """
+        x = torch.relu(self.head_1(input))
+        x = torch.relu(self.ff_1(x))
+        out = self.ff_2(x)
+        
+        return out
+
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
 
-    def __init__(self, buffer_size, batch_size, device, seed, gamma, n_step=1):
+    def __init__(self, buffer_size, batch_size, device, seed, gamma, n_step=1, cont_action_space:bool=False):
         """Initialize a ReplayBuffer object.
         Params
         ======
@@ -86,6 +110,7 @@ class ReplayBuffer:
         self.gamma = gamma
         self.n_step = n_step
         self.n_step_buffer = deque(maxlen=self.n_step)
+        self.cont_act = cont_action_space 
     
     def add(self, state, action, reward, next_state, done):
         """Add a new experience to memory."""
@@ -112,7 +137,11 @@ class ReplayBuffer:
         experiences = random.sample(self.memory, k=self.batch_size)
 
         states = torch.from_numpy(np.stack([e.state for e in experiences if e is not None])).float().to(self.device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(self.device)
+        if self.cont_act:
+            actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.device)
+        else:
+            actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(self.device)
+
         rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.device)
         next_states = torch.from_numpy(np.stack([e.next_state for e in experiences if e is not None])).float().to(self.device)
         dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.device)
@@ -138,7 +167,8 @@ class M_DQN_Agent():
                  UPDATE_EVERY,
                  device,
                  seed,
-                 use_transf=False):
+                 use_transf=False,
+                 add_alloc=False):
         """Initialize an Agent object.
         
         Params
@@ -178,6 +208,13 @@ class M_DQN_Agent():
         else:
             self.qnetwork_local = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
             self.qnetwork_target = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
+        
+        if not add_alloc:
+            self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
+            self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
+        else:
+            self.qnetwork_local = DDQN_alloc(state_size, action_size,[16,8,4], seed).to(device)
+            self.qnetwork_target = DDQN_alloc(state_size, action_size,[16,8,4], seed).to(device)
         
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
         #print(self.qnetwork_local)
