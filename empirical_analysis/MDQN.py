@@ -78,17 +78,27 @@ class DDQN_alloc(nn.Module):
         self.ff_1 = nn.Linear(hidden_layers[0], hidden_layers[1])      # 16 -> 8
         self.ff_2 = nn.Linear(hidden_layers[1], hidden_layers[2])      # 8  -> 4
 
-        self.ff_alloc = nn.Linear(hidden_layers[2] + 1, action_size)   # 4 features + current alloc -> actions
-        weight_init([self.head_1, self.ff_1])
+        self.ff_3  = nn.Linear(hidden_layers[2] + 1, hidden_layers[3])
+        self.ff_alloc =  nn.Linear(hidden_layers[3] , action_size)   # 4 features + current alloc -> actions
+        weight_init([self.head_1, self.ff_1, self.ff_3])
     
     def forward(self, input):
         """
-        
         """
-        x = torch.relu(self.head_1(input))
+        if input.dim() == 3:
+            features = input[:,:,:-1]
+            allocations = input[:,:,-1].unsqueeze(dim=2)
+        else:
+            features = input[:,:-1]
+            allocations = input[:,-1].unsqueeze(dim=1)
+
+        x = torch.relu(self.head_1(features))
         x = torch.relu(self.ff_1(x))
-        out = self.ff_2(x)
+        x = torch.relu(self.ff_2(x))
         
+        y = torch.cat((x,allocations),dim=input.dim()-1)
+        y = torch.relu(self.ff_3(y))
+        out = self.ff_alloc(y)
         return out
 
 class ReplayBuffer:
@@ -213,8 +223,8 @@ class M_DQN_Agent():
             self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
             self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
         else:
-            self.qnetwork_local = DDQN_alloc(state_size, action_size,[16,8,4], seed).to(device)
-            self.qnetwork_target = DDQN_alloc(state_size, action_size,[16,8,4], seed).to(device)
+            self.qnetwork_local = DDQN_alloc(state_size, action_size,[16,8,4,4], seed).to(device)
+            self.qnetwork_target = DDQN_alloc(state_size, action_size,[16,8,4,4], seed).to(device)
         
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
         #print(self.qnetwork_local)
@@ -291,18 +301,40 @@ class M_DQN_Agent():
                 action_values = self.qnetwork_local(state)
             self.qnetwork_local.train()
 
-            # Epsilon-greedy action selection
-            if random.random() > eps: # select greedy action if random number is higher than epsilon or noisy network is used!
-                if action_values.dim() == 3:
-                    action = np.argmax(action_values.cpu().data.numpy(),axis=2)
+            def epsilon_greedy_action_selection(action_values, ):
+                if random.random() > eps: # select greedy action if random number is higher than epsilon or noisy network is used!
+                    action = np.argmax(action_values.cpu().data.numpy())
+                    self.last_action = action
+                    return action
                 else:
-                    action = np.argmax(action_values.cpu().data.numpy(),axis=1).reshape(1,-1)
-                self.last_action = action
-                return action
-            else:
-                action = np.random.choice(np.arange(self.action_size),(1,n))
-                self.last_action = action 
-                return action
+                    action = random.choice(np.arange(self.action_size))
+                    self.last_action = action 
+                    return action
+
+            action = np.zeros((1,n))
+            for i in range(action_values.shape[action_values.dim()-2]):
+                if random.random() > eps:
+                    if action_values.dim() == 3:
+                        action[0,i] = np.argmax(action_values.cpu().data.numpy()[:,i,:])
+                    else:
+                        action[0,i] = np.argmax(action_values.cpu().data.numpy()[:,i])
+                else:
+                    action[0,i] = np.random.choice(np.arange(self.action_size))
+            self.last_action = action
+            return action
+
+            # Epsilon-greedy action selection
+            # if random.random() > eps: # select greedy action if random number is higher than epsilon or noisy network is used!
+            #     if action_values.dim() == 3:
+            #         action = np.argmax(action_values.cpu().data.numpy(),axis=2)
+            #     else:
+            #         action = np.argmax(action_values.cpu().data.numpy(),axis=1).reshape(1,-1)
+            #     self.last_action = action
+            #     return action
+            # else:
+            #     action = np.random.choice(np.arange(self.action_size),(1,n))
+            #     self.last_action = action 
+            #     return action
             #self.action_step = 0
         else:
             self.action_step += 1

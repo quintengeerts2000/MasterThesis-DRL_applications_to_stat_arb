@@ -28,7 +28,7 @@ class FourierExtractor():
             L = L-1
         assert L == self.signal_window, "can't calculate fourier transform for more than the input amount of data"
         if self.add_alloc:
-            res_window = (data[:-1,:] + 1).cumprod(axis=1) - 1
+            res_window = (data[:,:-1] + 1).cumprod(axis=1) - 1
         else:
             res_window = (data + 1).cumprod(axis=1) - 1
         Fourier    = np.fft.rfft(res_window,axis=1)
@@ -37,7 +37,7 @@ class FourierExtractor():
         out[:,:n_f]= np.real(Fourier)
         out[:,n_f:]= np.imag(Fourier[:,1:-1])
         if self.add_alloc:
-            out = np.vstack([out, data[-1,:]])
+            out = np.hstack((out, data[:,-1].reshape(-1,1)))
         return out.astype(float)
     
 class CumsumExtractor():
@@ -63,7 +63,7 @@ class CumsumExtractor():
         return out
     
 class CNNTransformerExtractor():
-    def __init__(self, signal_window:int=60) -> None:
+    def __init__(self, add_alloc, signal_window:int=60) -> None:
         self.signal_window   = signal_window
         # initializing the model
         self.optimizer_opts = {'lr':0.01}
@@ -71,6 +71,7 @@ class CNNTransformerExtractor():
         self.losses    = deque(maxlen=200)
         self.loss_graph = list()
         self.reset()
+        self.add_alloc = add_alloc
 
     def reset(self):
         self.model = CNNTransformer()
@@ -124,11 +125,19 @@ class CNNTransformerExtractor():
         res_window = torch.FloatTensor((residuals_data + 1).cumprod(axis=1).astype(float))
         return self.model(res_window).detach().numpy()
     
-    def extract(self, residuals_data):
-        if type(residuals_data) == torch.Tensor:
-            residuals_data = residuals_data.detach().numpy()
-        res_window = torch.FloatTensor((residuals_data + 1).cumprod(axis=1).astype(float))
-        return self.model.extr_sig(res_window).detach().numpy()
+    def extract(self, data):
+        if type(data) == torch.Tensor:
+            data = data.detach().numpy()
+        
+        if self.add_alloc:
+            res_window = torch.FloatTensor((data[:,:-1] + 1).cumprod(axis=1).astype(float))
+        else:
+            res_window = torch.FloatTensor((data + 1).cumprod(axis=1).astype(float))
+
+        out = self.model.extr_sig(res_window).detach().numpy()
+        if self.add_alloc:
+            out = np.hstack((out, data[:,-1].reshape(-1,1)))
+        return out
 
 ### deep learning model code below ###
 

@@ -60,6 +60,95 @@ class Critic(nn.Module):
         q1 = self.l3(q1)
         return q1
 
+class Actor_alloc(nn.Module):
+	def __init__(self, state_dim, action_dim, max_action, hidden_dimension):
+		super(Actor_alloc, self).__init__()
+
+		self.l1 = nn.Linear(state_dim, hidden_dimension[0])
+		self.l2 = nn.Linear(hidden_dimension[0], hidden_dimension[1])
+		self.l3 = nn.Linear(hidden_dimension[1], hidden_dimension[2])
+
+		self.l4 = nn.Linear(hidden_dimension[2]+1, hidden_dimension[2])
+		self.l_alloc = nn.Linear(hidden_dimension[2], action_dim)
+
+		self.max_action = max_action
+		
+
+	def forward(self, state):
+		if state.dim() == 3:
+			features = state[:,:,:-1]
+			allocations = state[:,:,-1].unsqueeze(dim=2)
+		else:
+			features = state[:,:-1]
+			allocations = state[:,-1].unsqueeze(dim=1)
+
+		a = F.relu(self.l1(features))
+		a = F.relu(self.l2(a))
+		a = F.relu(self.l3(a))
+		y = torch.cat((a,allocations),dim=state.dim()-1)
+		y = F.relu(self.l4(y))
+
+		return self.max_action * torch.tanh(self.l_alloc(y))
+
+class Critic_alloc(nn.Module):
+	def __init__(self, state_dim, action_dim,hidden_dimension):
+		super(Critic_alloc, self).__init__()
+		# Q1 architecture
+		self.l1 = nn.Linear(state_dim, hidden_dimension[0])
+		self.l2 = nn.Linear(hidden_dimension[0], hidden_dimension[1])
+		self.l3 = nn.Linear(hidden_dimension[1], hidden_dimension[2])
+
+		self.l4 = nn.Linear(hidden_dimension[2]+1+action_dim, hidden_dimension[2])
+		self.l_alloc = nn.Linear(hidden_dimension[2], 1)
+
+		# Q2 architecture
+		self.l5 = nn.Linear(state_dim, hidden_dimension[0])
+		self.l6 = nn.Linear(hidden_dimension[0], hidden_dimension[1])
+		self.l7 = nn.Linear(hidden_dimension[1], hidden_dimension[2])
+
+		self.l8 = nn.Linear(hidden_dimension[2]+1+action_dim, hidden_dimension[2])
+		self.l_alloc1 = nn.Linear(hidden_dimension[2], 1)
+
+	def forward(self, state, action):
+		if state.dim() == 3:
+			features = state[:,:,:-1]
+			allocations = state[:,:,-1].unsqueeze(dim=2)
+		else:
+			features = state[:,:-1]
+			allocations = state[:,-1].unsqueeze(dim=1)
+
+		x = F.relu(self.l1(features))
+		x = F.relu(self.l2(x))
+		x = F.relu(self.l3(x))
+		xa = torch.cat([x,allocations,action],dim=state.dim()-1)
+		q1 = F.relu(self.l4(xa))
+		q1 = self.l_alloc(q1)
+
+		y = F.relu(self.l1(features))
+		y = F.relu(self.l2(y))
+		y = F.relu(self.l3(y))
+		ya = torch.cat([y,allocations,action],dim=state.dim()-1)
+		q2 = F.relu(self.l4(ya))
+		q2 = self.l_alloc1(q2)
+		return q1, q2
+
+	def Q1(self, state, action):
+		if state.dim() == 3:
+			features = state[:,:,:-1]
+			allocations = state[:,:,-1].unsqueeze(dim=2)
+		else:
+			features = state[:,:-1]
+			allocations = state[:,-1].unsqueeze(dim=1)
+
+		x = F.relu(self.l1(features))
+		x = F.relu(self.l2(x))
+		x = F.relu(self.l3(x))
+		xa = torch.cat([x,allocations,action],dim=state.dim()-1)
+		q1 = F.relu(self.l4(xa))
+		q1 = self.l_alloc(q1)
+		return q1
+
+
 class TD3(object):
 	def __init__(
 		self,
@@ -71,16 +160,25 @@ class TD3(object):
 		policy_noise=0.2,
 		noise_clip=0.5,
 		policy_freq=2,
-		hidden_dimension = 256
+		hidden_dimension = 256,
+		use_alloc = False
 	):
+		if not use_alloc:
+			self.actor = Actor(state_dim, action_dim, max_action,hidden_dimension).to(device)
+			self.actor_target = copy.deepcopy(self.actor)
+			self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
 
-		self.actor = Actor(state_dim, action_dim, max_action,hidden_dimension).to(device)
-		self.actor_target = copy.deepcopy(self.actor)
-		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
+			self.critic = Critic(state_dim, action_dim, hidden_dimension).to(device)
+			self.critic_target = copy.deepcopy(self.critic)
+			self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
+		else:
+			self.actor = Actor_alloc(state_dim, action_dim, max_action,hidden_dimension).to(device)
+			self.actor_target = copy.deepcopy(self.actor)
+			self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
 
-		self.critic = Critic(state_dim, action_dim, hidden_dimension).to(device)
-		self.critic_target = copy.deepcopy(self.critic)
-		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
+			self.critic = Critic_alloc(state_dim, action_dim, hidden_dimension).to(device)
+			self.critic_target = copy.deepcopy(self.critic)
+			self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
 
 		self.max_action = max_action
 		self.discount = discount

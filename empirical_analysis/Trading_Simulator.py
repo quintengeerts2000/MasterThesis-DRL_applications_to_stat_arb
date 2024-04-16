@@ -31,7 +31,7 @@ class TradingEnvironment(gym.Env):
         self.data      = financial_dataset       # dataset 
         self.returns   = financial_dataset #financial_dataset.pct_change(1,fill_method=None) # compute returns 
         self.res_rets  = pd.DataFrame(index=self.data.index, columns=self.data.columns) # dataframe used to store the residual returns
-        self.res_alloc = pd.DataFrame(index=self.data.index, columns=self.data.columns).replace(np) # dataframe used to store the chosen allocation per residual portfolio
+        self.res_alloc = pd.DataFrame(index=self.data.index, columns=self.data.columns).replace(np.nan, 0) # dataframe used to store the chosen allocation per residual portfolio
         self.asset_alloc= pd.DataFrame(index=self.data.index, columns=self.data.columns) # dataframe used to store the allocation in the original asset space
         self.total_pl  = pd.DataFrame(index=self.data.index, columns=['strategy'])
 
@@ -117,7 +117,7 @@ class TradingEnvironment(gym.Env):
         self.tradeables = ~np.any(np.isnan(observation.values.astype(float)), axis = 0).ravel()
         if self.add_alloc:
             # add previous allocation to the observation
-            observation = pd.concat([observation, self.res_alloc.iloc[self.t-1]], ignore_index=True)     
+            observation = pd.DataFrame(columns=self.data.columns, data=np.vstack([observation.values, self.res_alloc.iloc[self.t].values]))    
         return observation.astype(float)
 
     def calculate_transaction_cost(self):
@@ -206,6 +206,8 @@ class TradingEnvironment(gym.Env):
         self.p_l      = change_total - self.tc_total
         self.total_pl.loc[self.date, 'strategy']  = self.p_l
 
+        reward[self.tradeable_tickers] = self.p_l
+        
         # save the old allocations and store them 
         self.old_alloc       = self.new_alloc.copy()
         self.old_alloc_total = self.new_alloc_total.copy()
