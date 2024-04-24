@@ -13,7 +13,6 @@ class TradingEnvironment(gym.Env):
                  episode_length:int=100,
                  lookback_window:int=252,
                  loading_window:int=60,
-                 factors:int=5,
                  signal_window:int=60,
                  transaction_costs:float=0.0,
                  short_cost:float=0.0,
@@ -44,7 +43,6 @@ class TradingEnvironment(gym.Env):
         self.lbw       = lookback_window   # lookback window used for pca 
         self.sig_win   = signal_window     # lookback window used for signals
         self.load_win  = loading_window
-        self.factors   = factors
         self.rebalance_every = rebalance_every
         self.add_alloc = add_alloc
 
@@ -68,9 +66,11 @@ class TradingEnvironment(gym.Env):
 
             # calculate the new residual portfolio weights at time t (in pandas :t+1, means the last row is at time t)
             if self.t % self.rebalance_every == 0:
-                self.res_portf, self.active_stocks  = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
-                                                            amount_of_factors=self.factors,
-                                                            loadings_window_size=self.load_win)
+                # self.res_portf, self.active_stocks  = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
+                #                                             amount_of_factors=self.factors,
+                #                                             loadings_window_size=self.load_win)
+
+                self.res_portf, self.active_stocks  = self.res_gen.step(self.date)
         
         # initialise the allocation vectors 
         self.old_alloc       = np.zeros((self.N,self.N))
@@ -220,9 +220,10 @@ class TradingEnvironment(gym.Env):
 
         # calculate the new residual portfolio weights at time t
         if self.t % self.rebalance_every == 0:
-            self.res_portf, self.active_stocks   = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
-                                                        amount_of_factors=self.factors,
-                                                        loadings_window_size=self.load_win)
+            # self.res_portf, self.active_stocks   = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
+            #                                             amount_of_factors=self.factors,
+            #                                             loadings_window_size=self.load_win)
+            self.res_portf, self.active_stocks   = self.res_gen.step(self.date)
 
         # keep track of which stocks are added and removed
         changes = self.tradeables.astype(int) - self.old_tradeables.astype(int)

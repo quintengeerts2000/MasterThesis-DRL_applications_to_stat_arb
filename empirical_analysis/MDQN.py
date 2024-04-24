@@ -206,7 +206,7 @@ class M_DQN_Agent():
         self.ENTROPY_TAU = 0.03
         self.ALPHA       = 0.99
         self.LO          = -1
-        self.Q_updates = 0
+        self.Q_updates   = 0
 
         self.action_step = 4
         self.last_action = None
@@ -301,16 +301,6 @@ class M_DQN_Agent():
                 action_values = self.qnetwork_local(state)
             self.qnetwork_local.train()
 
-            def epsilon_greedy_action_selection(action_values, ):
-                if random.random() > eps: # select greedy action if random number is higher than epsilon or noisy network is used!
-                    action = np.argmax(action_values.cpu().data.numpy())
-                    self.last_action = action
-                    return action
-                else:
-                    action = random.choice(np.arange(self.action_size))
-                    self.last_action = action 
-                    return action
-
             action = np.zeros((1,n))
             for i in range(action_values.shape[action_values.dim()-2]):
                 if random.random() > eps:
@@ -323,7 +313,7 @@ class M_DQN_Agent():
             self.last_action = action
             return action
 
-            # Epsilon-greedy action selection
+            # # Epsilon-greedy action selection
             # if random.random() > eps: # select greedy action if random number is higher than epsilon or noisy network is used!
             #     if action_values.dim() == 3:
             #         action = np.argmax(action_values.cpu().data.numpy(),axis=2)
