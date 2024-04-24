@@ -4,6 +4,7 @@ import datetime as dt
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+# from Residual_Generator import PCA_old #TODO: remove
 
 
 class TradingEnvironment(gym.Env):
@@ -66,8 +67,8 @@ class TradingEnvironment(gym.Env):
 
             # calculate the new residual portfolio weights at time t (in pandas :t+1, means the last row is at time t)
             if self.t % self.rebalance_every == 0:
-                # self.res_portf, self.active_stocks  = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
-                #                                             amount_of_factors=self.factors,
+                # self.res_portf, self.active_stocks  = PCA_old(self.data.iloc[self.t - self.lbw: self.t+1],
+                #                                             amount_of_factors=5,
                 #                                             loadings_window_size=self.load_win)
 
                 self.res_portf, self.active_stocks  = self.res_gen.step(self.date)
@@ -206,7 +207,7 @@ class TradingEnvironment(gym.Env):
         self.p_l      = change_total - self.tc_total
         self.total_pl.loc[self.date, 'strategy']  = self.p_l
 
-        reward[self.tradeable_tickers] = self.p_l
+        # reward[self.tradeable_tickers] = self.p_l
         
         # save the old allocations and store them 
         self.old_alloc       = self.new_alloc.copy()
@@ -220,8 +221,8 @@ class TradingEnvironment(gym.Env):
 
         # calculate the new residual portfolio weights at time t
         if self.t % self.rebalance_every == 0:
-            # self.res_portf, self.active_stocks   = self.res_gen(self.data.iloc[self.t - self.lbw: self.t+1],
-            #                                             amount_of_factors=self.factors,
+            # self.res_portf, self.active_stocks   = PCA_old(self.data.iloc[self.t - self.lbw: self.t+1],
+            #                                             amount_of_factors=5,
             #                                             loadings_window_size=self.load_win)
             self.res_portf, self.active_stocks   = self.res_gen.step(self.date)
 

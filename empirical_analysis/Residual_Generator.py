@@ -128,7 +128,7 @@ class IPCA:
     
     def _find_nearest_date(self, date:dt.datetime) -> dt.datetime:
         return self.dates[self.dates < date][-1]
-    
+
 def PCA_old(price_data:pd.DataFrame, 
                 amount_of_factors:int=5,
                 loadings_window_size:int=60)-> np.ndarray:
