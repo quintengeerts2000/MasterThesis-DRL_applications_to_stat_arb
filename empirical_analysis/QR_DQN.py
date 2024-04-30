@@ -151,7 +151,7 @@ class DQN_Agent():
         self.BATCH_SIZE = BATCH_SIZE
         self.Q_updates = 0
         self.n_step = n_step
-        self.N = 32
+        self.N = 16
         self.quantile_tau = torch.FloatTensor([i/self.N for i in range(1,self.N+1)]).to(device)
 
         self.action_step = 4
@@ -322,7 +322,7 @@ def calculate_huber_loss(td_errors, k=1.0):
     Calculate huber loss element-wisely depending on kappa k.
     """
     loss = torch.where(td_errors.abs() <= k, 0.5 * td_errors.pow(2), k * (td_errors.abs() - 0.5 * k))
-    assert loss.shape == (td_errors.shape[0], 32, 32), "huber loss has wrong shape"
+    assert loss.shape == (td_errors.shape[0], 16, 16), "huber loss has wrong shape"
     #assert loss.shape == (td_errors.shape[0], 8, 8), "huber loss has wrong shape"
     return loss
 

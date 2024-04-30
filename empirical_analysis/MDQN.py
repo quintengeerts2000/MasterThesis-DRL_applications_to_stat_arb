@@ -42,7 +42,6 @@ class DDQN_transf(nn.Module):
         x = torch.relu(self.head_1(x))
         x = torch.relu(self.ff_1(x))
         out = self.ff_2(x)
-        
         return out
     
 class DDQN(nn.Module):
@@ -219,12 +218,12 @@ class M_DQN_Agent():
             self.qnetwork_local = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
             self.qnetwork_target = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
         
-        if not add_alloc:
-            self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
-            self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
-        else:
-            self.qnetwork_local = DDQN_alloc(state_size, action_size,[16,8,4,4], seed).to(device)
-            self.qnetwork_target = DDQN_alloc(state_size, action_size,[16,8,4,4], seed).to(device)
+        # if not add_alloc:
+        #     self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
+        #     self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
+        # else:
+        #     self.qnetwork_local = DDQN_alloc(state_size, action_size,[16,8,4,4], seed).to(device)
+        #     self.qnetwork_target = DDQN_alloc(state_size, action_size,[16,8,4,4], seed).to(device)
         
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
         #print(self.qnetwork_local)
@@ -307,7 +306,7 @@ class M_DQN_Agent():
                     if action_values.dim() == 3:
                         action[0,i] = np.argmax(action_values.cpu().data.numpy()[:,i,:])
                     else:
-                        action[0,i] = np.argmax(action_values.cpu().data.numpy()[:,i])
+                        action[0,i] = np.argmax(action_values.cpu().data.numpy()[i,:])
                 else:
                     action[0,i] = np.random.choice(np.arange(self.action_size))
             self.last_action = action
@@ -581,8 +580,8 @@ class CNNTransformer(nn.Module):
                  hidden_units_factor = 2,
                  dropout = 0.25, 
                  filter_size = 2, 
-                 use_transformer = True):
-        
+                 use_transformer = False):
+        print('proof')
         super(CNNTransformer, self).__init__()
         if hidden_units and hidden_units_factor and hidden_units != hidden_units_factor * filter_numbers[-1]:
             raise Exception(f"`hidden_units` conflicts with `hidden_units_factor`; provide one or the other, but not both.")
