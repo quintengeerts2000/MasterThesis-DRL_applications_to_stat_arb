@@ -44,6 +44,76 @@ class DDQN_transf(nn.Module):
         out = self.ff_2(x)
         return out
     
+class DDQN_CNN(nn.Module):
+    def __init__(self, state_size, action_size,layer_size, seed, layer_type="ff"):
+        super(DDQN_CNN, self).__init__()
+        self.seed = torch.manual_seed(seed)
+        self.input_shape = state_size
+        self.action_size = action_size
+        filter_size = 2
+        T = 30
+        self.hidden_channels = 8
+        
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=self.hidden_channels, kernel_size=filter_size,
+                                    stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
+        
+        self.conv2 = nn.Conv1d(in_channels=self.hidden_channels, out_channels=self.hidden_channels, kernel_size=filter_size,
+                                    stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
+        self.relu = nn.ReLU(inplace=True)
+        self.left_zero_padding = nn.ConstantPad1d((filter_size-1,0),0)
+        
+        self.normalization1 = nn.InstanceNorm1d(1)
+        self.normalization2 = nn.InstanceNorm1d(self.hidden_channels)
+        self.normalization = True
+         
+        #self.head_1 = nn.Linear(self.hidden_channels*T, layer_size)
+        self.head_1 = nn.Linear(self.hidden_channels, layer_size)
+
+        attention_heads = 5
+        self.encoder = nn.TransformerEncoderLayer(d_model=self.hidden_channels, nhead=4, dim_feedforward=self.hidden_channels*2, dropout=0.25)
+        self.linear = nn.Linear(8,3)
+        #self.ff_1 = nn.Linear(layer_size, layer_size)
+        #self.ff_2 = nn.Linear(layer_size, action_size)
+        weight_init([self.head_1, self.linear])
+    
+    def forward(self, input):
+        """
+        
+        """
+
+        if input.dim() == 3:
+            _,N,T = input.shape
+        else:
+            N,T = input.shape
+        x = input.reshape((N,1,T))  #(N,1,T)
+
+        if self.normalization:
+            x = self.normalization1(x)
+        out = self.left_zero_padding(x)
+        out = self.conv1(out)
+        out = self.relu(out)
+        if self.normalization: 
+            out = self.normalization2(out)
+        out = self.left_zero_padding(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = out + x.repeat(1,self.hidden_channels,1)
+
+        out = out.permute(2,0,1)
+        out = self.encoder(out)
+        out = self.linear(out[-1,:,:])
+        # out = out.view(-1, self.hidden_channels * T)
+        # out = torch.relu(self.head_1(out))
+        # out = torch.relu(self.ff_1(out))
+        # out = self.ff_2(out)
+
+        # out = out.permute(2,0,1)
+        # out = torch.relu(self.head_1(out[-1,:,:]))
+        # out = torch.relu(self.ff_1(out))
+        # out = self.ff_2(out)
+
+        return out
+    
 class DDQN(nn.Module):
     def __init__(self, state_size, action_size,layer_size, seed, layer_type="ff"):
         super(DDQN, self).__init__()
@@ -215,8 +285,11 @@ class M_DQN_Agent():
             self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
             self.qnetwork_target = DDQN(state_size, action_size,layer_size, seed).to(device)
         else:
-            self.qnetwork_local = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
-            self.qnetwork_target = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
+            # self.qnetwork_local = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
+            # self.qnetwork_target = DDQN_transf(state_size, action_size,layer_size, seed).to(device)
+            print('Transformer')
+            self.qnetwork_local = DDQN_CNN(state_size, action_size,layer_size, seed).to(device)
+            self.qnetwork_target = DDQN_CNN(state_size, action_size,layer_size, seed).to(device)
         
         # if not add_alloc:
         #     self.qnetwork_local = DDQN(state_size, action_size,layer_size, seed).to(device)
@@ -581,7 +654,6 @@ class CNNTransformer(nn.Module):
                  dropout = 0.25, 
                  filter_size = 2, 
                  use_transformer = False):
-        print('proof')
         super(CNNTransformer, self).__init__()
         if hidden_units and hidden_units_factor and hidden_units != hidden_units_factor * filter_numbers[-1]:
             raise Exception(f"`hidden_units` conflicts with `hidden_units_factor`; provide one or the other, but not both.")
