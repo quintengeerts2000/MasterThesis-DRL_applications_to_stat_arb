@@ -18,7 +18,8 @@ class TradingEnvironment(gym.Env):
                  transaction_costs:float=0.0,
                  short_cost:float=0.0,
                  rebalance_every:int=1, 
-                 add_alloc=False) -> None:
+                 add_alloc=False,
+                 use_log_returns=False) -> None:
         '''
         financial_dataset: is a dataframe containing the adjusted prices of all the assets
         residual_generator: a function, called every timestep, whose input is a lookback window of asset prices, and then 
@@ -46,6 +47,7 @@ class TradingEnvironment(gym.Env):
         self.load_win  = loading_window
         self.rebalance_every = rebalance_every
         self.add_alloc = add_alloc
+        self.use_log_ret = use_log_returns
 
         self.t         = self.lbw + 1 #current timestep idx position in the large dataset
         self.ep        = 0  # current episode
@@ -139,7 +141,10 @@ class TradingEnvironment(gym.Env):
     def evaluate_performance(self):
         perf = self.total_pl.iloc[self.t - self.ep_N + 1:self.t + 1].values
         # Compute cumulative return
-        cumulative_return = np.prod(1 + perf) - 1
+        if self.use_log_ret:
+            cumulative_return = np.exp(np.sum(perf)) - 1
+        else:
+            cumulative_return = np.prod(1 + perf) - 1
         # Calculate annualized return
         annualized_return = (1 + cumulative_return)**(252/self.ep_N) - 1
         # Calculate volatility (standard deviation)
@@ -153,7 +158,10 @@ class TradingEnvironment(gym.Env):
         
         perf_tot = self.total_pl.iloc[self.start_t + 1:self.t + 1].values
         # Compute cumulative return
-        cumulative_return = np.prod(1 + perf_tot) - 1
+        if self.use_log_ret:
+            cumulative_return = np.exp(np.sum(perf_tot)) - 1
+        else:
+            cumulative_return = np.prod(1 + perf_tot) - 1
         # Calculate annualized return
         annualized_return = (1 + cumulative_return)**(252/(self.t - self.start_t)) - 1
         # Calculate volatility (standard deviation)

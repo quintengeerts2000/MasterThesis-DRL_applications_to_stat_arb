@@ -102,16 +102,6 @@ class DDQN_CNN(nn.Module):
         out = out.permute(2,0,1)
         out = self.encoder(out)
         out = self.linear(out[-1,:,:])
-        # out = out.view(-1, self.hidden_channels * T)
-        # out = torch.relu(self.head_1(out))
-        # out = torch.relu(self.ff_1(out))
-        # out = self.ff_2(out)
-
-        # out = out.permute(2,0,1)
-        # out = torch.relu(self.head_1(out[-1,:,:]))
-        # out = torch.relu(self.ff_1(out))
-        # out = self.ff_2(out)
-
         return out
     
 class DDQN(nn.Module):
@@ -208,7 +198,65 @@ class ReplayBuffer:
             Return += self.gamma**idx * self.n_step_buffer[idx][2]
         
         return self.n_step_buffer[0][0], self.n_step_buffer[0][1], Return, self.n_step_buffer[-1][3], self.n_step_buffer[-1][4]
-        
+    
+    def sample(self):
+        """Randomly sample a batch of experiences from memory."""
+        experiences = random.sample(self.memory, k=self.batch_size)
+
+        states = torch.from_numpy(np.stack([e.state for e in experiences if e is not None])).float().to(self.device)
+        if self.cont_act:
+            actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.device)
+        else:
+            actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(self.device)
+
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.device)
+        next_states = torch.from_numpy(np.stack([e.next_state for e in experiences if e is not None])).float().to(self.device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.device)
+  
+        return (states, actions, rewards, next_states, dones)
+
+    def __len__(self):
+        """Return the current size of internal memory."""
+        return len(self.memory)
+
+class ReplayBufferSharpe:
+    """Fixed-size buffer to store experience tuples."""
+
+    def __init__(self, buffer_size, batch_size, device, seed, gamma, assets:list, n_step=1, cont_action_space:bool=False):
+        """Initialize a ReplayBuffer object.
+        Params
+        ======
+            buffer_size (int): maximum size of buffer
+            batch_size (int): size of each training batch
+            seed (int): random seed
+        """
+        self.device = device
+        self.memory = deque(maxlen=buffer_size)  
+        self.batch_size = batch_size
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        self.seed = random.seed(seed)
+        self.gamma = gamma
+        self.n_step = n_step
+        self.n_step_asset_buffer = {asset:deque(maxlen=self.n_step) for asset in assets}
+        #self.n_step_buffer = deque(maxlen=self.n_step)
+        self.cont_act = cont_action_space 
+    
+    def add(self,asset:str, state, action, reward, next_state, done):
+        """Add a new experience to memory."""
+        self.n_step_asset_buffer[asset].append((state, action, reward, next_state, done))
+        if len(self.n_step_asset_buffer[asset]) == self.n_step:
+            state, action, reward, next_state, done = self.calc_multistep_return(asset)
+            e = self.experience(state, action, reward, next_state, done)
+            self.memory.append(e)
+    
+    def calc_multistep_return(self,asset):
+        Returns = list()
+        if self.n_step == 1:
+            return self.n_step_asset_buffer[asset][-1][0], self.n_step_asset_buffer[asset][-1][1], self.n_step_asset_buffer[asset][-1][2], self.n_step_asset_buffer[asset][-1][3], self.n_step_asset_buffer[asset][-1][4]
+        for idx in range(self.n_step):
+            Returns.append(self.n_step_asset_buffer[asset][idx][2])
+        Return = self.n_step_asset_buffer[asset][-1][2] - 0.5 * np.std(Returns)
+        return self.n_step_asset_buffer[asset][-1][0], self.n_step_asset_buffer[asset][-1][1], Return, self.n_step_asset_buffer[asset][-1][3], self.n_step_asset_buffer[asset][-1][4]
     
     
     def sample(self):

@@ -26,6 +26,61 @@ class Actor(nn.Module):
 		a = F.relu(self.l2(a))
 		return self.max_action * torch.tanh(self.l3(a))
 
+class Actor_CNN(nn.Module):
+	def __init__(self, state_dim, action_dim, max_action, hidden_dimension):
+		super(Actor_CNN, self).__init__()
+		self.input_shape = state_dim
+		self.action_size = action_dim
+		self.max_action = max_action
+		filter_size = 2
+		T = 30
+		self.hidden_channels = 8
+
+		self.conv1 = nn.Conv1d(in_channels=1, out_channels=self.hidden_channels, kernel_size=filter_size,
+									stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
+
+		self.conv2 = nn.Conv1d(in_channels=self.hidden_channels, out_channels=self.hidden_channels, kernel_size=filter_size,
+									stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
+		self.relu = nn.ReLU(inplace=True)
+		self.left_zero_padding = nn.ConstantPad1d((filter_size-1,0),0)
+
+		self.normalization1 = nn.InstanceNorm1d(1)
+		self.normalization2 = nn.InstanceNorm1d(self.hidden_channels)
+		self.normalization = True
+			
+		self.head_1 = nn.Linear(self.hidden_channels, layer_size)
+
+		self.encoder = nn.TransformerEncoderLayer(d_model=self.hidden_channels, nhead=4, dim_feedforward=self.hidden_channels*2, dropout=0.25)
+		self.linear = nn.Linear(8,1)
+	
+	def forward(self, input):
+		"""
+
+		"""
+
+		if input.dim() == 3:
+			_,N,T = input.shape
+		else:
+			N,T = input.shape
+		x = input.reshape((N,1,T))  #(N,1,T)
+
+		if self.normalization:
+			x = self.normalization1(x)
+		out = self.left_zero_padding(x)
+		out = self.conv1(out)
+		out = self.relu(out)
+		if self.normalization: 
+			out = self.normalization2(out)
+		out = self.left_zero_padding(out)
+		out = self.conv2(out)
+		out = self.relu(out)
+		out = out + x.repeat(1,self.hidden_channels,1)
+
+		out = out.permute(2,0,1)
+		out = self.encoder(out)
+		out = self.linear(out[-1,:,:])
+		return self.max_action * F.tanh(out)
+
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim,hidden_dimension):
         super(Critic, self).__init__()
